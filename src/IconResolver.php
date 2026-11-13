@@ -13,10 +13,10 @@ namespace Armanoide\Iconizer;
 final class IconResolver
 {
     /** Packs the picker is allowed to offer (ADR 0002). */
-    public const ALLOWED_PACKS = ['lucide', 'tabler', 'mdi', 'ph', 'ri'];
+    public const ALLOWED_PACKS = ['bi', 'fa-solid', 'fa-regular', 'fa-brands', 'ic', 'mdi', 'simple-icons'];
 
     /** Fallback reference when nothing is configured or nothing resolves. */
-    public const DEFAULT_ICON = 'tabler:folder';
+    public const DEFAULT_ICON = 'bi:folder';
 
     /**
      * @param array<string, string> $overrides folder reference (UTF-7-IMAP) => "pack:name"

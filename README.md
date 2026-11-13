@@ -5,7 +5,8 @@ Standalone plugin — independent from `roundcube_catppuccin` (which owns colour
 
 ## What it does
 - Each mailbox folder can carry its own icon, chosen from a curated set of Iconify packs
-  (Lucide by default, Tabler, Material Design Icons, Phosphor, Remix).
+  (Bootstrap Icons by default, Font Awesome Solid/Regular/Brands, Google
+  Material Icons, Material Design Icons, Simple Icons).
 - Icons render as inline SVG using `currentColor`, so the active theme controls their colour.
 - Unreachable icon service never leaves a blank row: a bundled Tabler webfont is the fallback,
   then Elastic's standard folder glyph.

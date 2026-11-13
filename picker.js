@@ -12,7 +12,7 @@
 
     var API = 'https://api.iconify.design';
     // ADR 0002 — mirrors IconResolver::ALLOWED_PACKS / IconPacks::PACKS.
-    var PACKS = { lucide: 'Lucide', tabler: 'Tabler', mdi: 'Material Design Icons', ph: 'Phosphor', ri: 'Remix' };
+    var PACKS = { bi: 'Bootstrap Icons', 'fa-solid': 'Font Awesome Solid', 'fa-regular': 'Font Awesome Regular', 'fa-brands': 'Font Awesome Brands', ic: 'Google Material Icons', mdi: 'Material Design Icons', 'simple-icons': 'Simple Icons' };
 
     function esc(s) {
         return String(s).replace(/[&<>"']/g, function (c) {
