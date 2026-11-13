@@ -330,7 +330,10 @@ class roundcube_iconizer extends rcube_plugin
 
         $hidden = new html_hiddenfield(['name' => '_iconizer_icon', 'id' => '_iconizer_icon', 'value' => $current]);
 
-        $button = '<button type="button" id="iconizer-picker-button" class="btn iconizer-form-icon"'
+        // The core's get_form_part() emits <label for="_icon">Icon</label> for this
+        // field (folder_edit.php:325). The visible control must carry id="_icon" so
+        // that label resolves; the submitted value stays in the hidden input.
+        $button = '<button type="button" id="_icon" class="btn iconizer-form-icon"'
             . ' data-pack="' . htmlspecialchars($pack, ENT_QUOTES) . '"'
             . ' title="' . htmlspecialchars($current !== '' ? $current : 'Choose an icon', ENT_QUOTES) . '">'
             . $preview

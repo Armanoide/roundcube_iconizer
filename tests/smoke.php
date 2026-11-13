@@ -66,7 +66,7 @@ $checks = [
     'painter css loaded'         => str_contains($mail, 'plugins/roundcube_iconizer/styles/iconizer.css'),
     'icon map published'         => str_contains($mail, '"iconizer_icons"'),
     'Administration mapped'      => str_contains($mail, 'Administration') && str_contains($mail, 'tabler:briefcase'),
-    'icon field in folder form'  => str_contains($form, 'id="iconizer-picker-button"') && str_contains($form, '_iconizer_icon'),
+    'icon field in folder form'  => str_contains($form, 'id="_icon"') && str_contains($form, '_iconizer_icon'),
     'picker runtime inlined'     => str_contains($form, 'iconizer-overlay') || str_contains($form, 'iconify.design/search'),
     'js asset 200'              => trim((string) shell_exec("curl -s -o /dev/null -w '%{http_code}' --max-time 10 \"{$base}/static.php/plugins/roundcube_iconizer/iconizer.js\"")) === '200',
     'css asset 200'             => trim((string) shell_exec("curl -s -o /dev/null -w '%{http_code}' --max-time 10 \"{$base}/static.php/plugins/roundcube_iconizer/styles/iconizer.css\"")) === '200',

@@ -38,7 +38,8 @@
     }
 
     function picker() {
-        var button = document.getElementById('iconizer-picker-button');
+        // id="_icon" so the core's <label for="_icon">Icon</label> resolves to it.
+        var button = document.getElementById('_icon');
         var hidden = document.getElementById('_iconizer_icon');
         if (!button || !hidden) {
             return;
