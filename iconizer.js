@@ -67,10 +67,15 @@
             var anchor = li.querySelector(':scope > a');
             if (!anchor) return;
 
-            var old = anchor.querySelector(':scope > .iconizer-holder');
-            if (old) old.remove();
-
-            anchor.insertBefore(makeIconNode(entry), anchor.firstChild);
+            // La ref est dans les prefs mais son SVG n'est pas encore en cache
+            // (save fresh) : on peint le glyphe Iconify en direct plutôt que de
+            // laisser la ligne sans icône.
+            var holder = entry.svg ? entry.svg : '';
+            if (holder) {
+                anchor.insertAdjacentHTML('afterbegin', '<span class="iconizer-holder">' + holder + '</span>');
+            } else if (!anchor.querySelector(':scope > .iconizer-holder')) {
+                anchor.insertBefore(makeIconNode(entry), anchor.firstChild);
+            }
             li.classList.add('iconizer-painted');
         }
 
@@ -81,7 +86,12 @@
         self.rcmail.iconizer_paint = function (folder) {
             ICONS = (self.rcmail.env && self.rcmail.env.iconizer_icons) || ICONS;
 
-            var li = folder ? self.document.getElementById('rcmli' + self.rcmail.html_identifier_encode(folder)) : null;
+            // La ligne du tree vit dans le frame parent (subscription-table). En
+            // deep-link sur edit-folder, self.document est celui de l'iframe : le
+            // getElementById y échoue et la peinture ne part jamais. On cible donc
+            // le document du parent quand il existe, sinon le nôtre.
+            var doc = (self.parent && self.parent !== self && self.parent.document) ? self.parent.document : self.document;
+            var li  = folder ? doc.getElementById('rcmli' + self.rcmail.html_identifier_encode(folder)) : null;
 
             if (folder && !li) {
                 // Deux cas sans ligne au nom submitted : renommage (le cœur est en
@@ -89,7 +99,7 @@
                 // rattrapent la peinture) et suppression de l'icône sur une ligne
                 // déjà repeinte (entryFor échoue, il faut unpaint directement).
                 if (ICONS[folder]) return;
-                self.document.querySelectorAll('.folderlist li.mailbox.iconizer-painted').forEach(unpaintRow);
+                doc.querySelectorAll('.folderlist li.mailbox.iconizer-painted').forEach(unpaintRow);
                 return;
             }
 

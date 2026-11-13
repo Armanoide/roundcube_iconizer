@@ -46,7 +46,7 @@
             return;
         }
 
-        var pack = button.getAttribute('data-pack') || 'lucide';
+        var pack = button.getAttribute('data-pack') || 'bi';
         var selected = hidden.value || '';
 
         // One overlay for the whole document; opened on every button click.
@@ -72,6 +72,11 @@
             document.body.appendChild(overlay);
 
             select = overlay.querySelector('.iconizer-pack');
+            // « Tous » en tête : cherche dans tous les packs autorisés à la fois.
+            var all = document.createElement('option');
+            all.value = '';
+            all.textContent = label('iconizerall', 'All packs');
+            select.appendChild(all);
             Object.keys(PACKS).forEach(function (p) {
                 var opt = document.createElement('option');
                 opt.value = p;
@@ -147,29 +152,50 @@
             }
         }
 
+        function searchPack(p, term) {
+            // Une requête par pack : Iconify ne page que 64 résultats par appel et
+            // ne prend qu'un seul prefix= — une recherche globale suivie d'un filtre
+            // a posteriori ne remonte jamais les refs des packs autorisés (bug « pro »).
+            return fetch(API + '/search?query=' + encodeURIComponent(term) + '&prefix=' + encodeURIComponent(p) + '&limit=96')
+                .then(function (r) { return r.json(); })
+                .then(function (data) { return data.icons || []; })
+                .catch(function () { return []; });
+        }
+
         function load(p, term) {
             var grid = overlay.querySelector('.iconizer-grid');
             grid.innerHTML = '';
+            term = (term || '').trim();
+
+            // Sans pack sélectionné (« Tous ») : tous les packs autorisés.
+            var targets = p ? [p] : Object.keys(PACKS);
+
             if (!term) {
-                // Sans recherche : les "samples" officiels d'Iconify pour ce pack.
-                fetch(API + '/collections?request=' + encodeURIComponent(JSON.stringify({ prefixes: [p] })))
-                    .then(function (r) { return r.json(); })
-                    .then(function (data) {
-                        var info = data[p] || {};
-                        show(grid, (info.samples || []).map(function (n) { return p + ':' + n; }));
-                    })
-                    .catch(function () { grid.textContent = 'Iconify API unreachable'; });
+                // Sans recherche : les "samples" officiels d'Iconify, par pack.
+                Promise.all(targets.map(function (t) {
+                    return fetch(API + '/collections?request=' + encodeURIComponent(JSON.stringify({ prefixes: [t] })))
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) { return (data[t] && data[t].samples || []).map(function (n) { return t + ':' + n; }); })
+                        .catch(function () { return []; });
+                })).then(function (chunks) {
+                    show(grid, flatten(chunks));
+                });
                 return;
             }
-            fetch(API + '/search?query=' + encodeURIComponent(term) + '&limit=196')
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    var refs = (data.icons || []).filter(function (ref) {
-                        return Object.prototype.hasOwnProperty.call(PACKS, ref.split(':')[0]); // ADR 0002
-                    }).slice(0, 96);
-                    show(grid, refs);
-                })
+
+            Promise.all(targets.map(function (t) { return searchPack(t, term); }))
+                .then(function (chunks) { show(grid, flatten(chunks)); })
                 .catch(function () { grid.textContent = 'Iconify API unreachable'; });
+        }
+
+        function flatten(chunks) {
+            var seen = {}, out = [];
+            chunks.forEach(function (refs) {
+                refs.forEach(function (ref) {
+                    if (!seen[ref]) { seen[ref] = 1; out.push(ref); }
+                });
+            });
+            return out.slice(0, 196);
         }
 
         function show(grid, refs) {
