@@ -85,7 +85,13 @@ class roundcube_iconizer extends rcube_plugin
         // page is sent, so they land on every html page.
         $this->include_script('https://code.iconify.design/3/3.1.0/iconify.min.js');
         $this->include_stylesheet('styles/iconizer.css');
-        $this->include_script('iconizer.js');
+        // Inlined, not include_script: on the classic-POST save-folder rename path
+        // the core answers with an iframe (folder_save.php:204 → send('iframe'))
+        // whose commands all target the parent window, so write() drops every
+        // registered script file (rcmail_output_html.php:650-658) — the same reason
+        // picker.js is inlined in folder_form(). Inline scripts survive, so the
+        // sidebar repaints after save without a manual reload.
+        $this->inline_script((string) @file_get_contents(__DIR__ . '/iconizer.js'));
 
         // ready fires post-authentication, before write(): the env map lands in
         // the normal js_env commands. send_page is the last-resort safety net —
@@ -98,13 +104,12 @@ class roundcube_iconizer extends rcube_plugin
         // (program/js/app.js:1128) — so the output object stays rcmail_output_html
         // (rcmail.php:145-147: json_init only with the X-Roundcube-Request header)
         // and render_response NEVER fires on save-folder. Persistence therefore
-        // happens in flush_pending_icon at request shutdown (see init below); this
-        // hook only piggybacks the fresh map onto genuine AJAX responses.
+        // happens in flush_pending_icon, flushed from on_folder_update below;
+        // this hook only piggybacks the fresh map onto genuine AJAX responses.
         $this->add_hook('render_response', [$this, 'on_render_response']);
 
         if ($rcmail->task === 'settings') {
             $this->add_hook('folder_form', [$this, 'folder_form']);
-
             // The folder edit form submits to the core save-folder action. A plugin
             // cannot shadow a core action: rcube_plugin_api::register_action() force-
             // prefixes every registration with "plugin." (rcube_plugin_api.php:523),
@@ -114,8 +119,8 @@ class roundcube_iconizer extends rcube_plugin
             // index alias table (settings/index.php:42 → rcmail_action_settings_folder_-
             // save), so our handler would never run. The folder_update hook IS fired on
             // this request (folder_save.php:156) with the submitted record, before the
-            // IMAP write — so we stash the icon there and commit it at request
-            // shutdown (flush_pending_icon), after the core's own save_prefs ran.
+            // IMAP write — so we commit the icon there (flush_pending_icon), which is
+            // early enough for the edit-folder form and env re-rendered afterwards.
             $this->add_hook('folder_update', [$this, 'on_folder_update']);
         }
 
@@ -125,11 +130,11 @@ class roundcube_iconizer extends rcube_plugin
         $this->add_hook('folder_rename', [$this, 'on_folder_rename']);
         $this->add_hook('folder_delete', [$this, 'on_folder_delete']);
 
-        // Persistence net for the classic-POST save-folder path: rcube::shutdown()
-        // (rcube.php:1087, register_shutdown_function at rcube.php:124) runs
-        // rcmail::shutdown() before the DB/session close on EVERY request,
-        // including the plain form POST where render_response and send_page never
-        // fire (folder_save.php:217 hands off to edit-folder, whose send() exits
+        // Persistence net for paths that reach it before on_folder_update flushes:
+        // rcube::shutdown() (rcube.php:1087, register_shutdown_function at
+        // rcube.php:124) runs rcmail::shutdown() before the DB/session close on
+        // EVERY request, including the plain form POST where render_response never
+        // fires (folder_save.php:217 hands off to edit-folder, whose send() exits
         // inside the dispatcher loop at rcmail.php:310).
         rcube::get_instance()->add_shutdown_function([$this, 'flush_pending_icon']);
 
@@ -164,6 +169,15 @@ class roundcube_iconizer extends rcube_plugin
         $rcmail = rcmail::get_instance();
 
         return (bool) ($rcmail && $rcmail->user && $rcmail->user->save_prefs([self::PREFS_KEY => $this->store->all()]));
+    }
+
+    /** Inline a plugin script into the page head (survives the core's reset()). */
+    private function inline_script(string $js): void
+    {
+        $rcmail = rcmail::get_instance();
+        if ($js !== '' && $rcmail->output && method_exists($rcmail->output, 'add_script')) {
+            $rcmail->output->add_script($js);
+        }
     }
 
     /** Publish the folder→icon map to the client, keyed by raw folder name. */
@@ -268,12 +282,16 @@ class roundcube_iconizer extends rcube_plugin
     }
 
     /**
-     * Stash the icon chosen in the folder edit form. Fired by the core's
-     * save-folder action (folder_save.php:156) with the submitted record before
-     * the IMAP write. We do not persist here: a failed create/rename must not
-     * leave prefs behind (the core's own message_threading pattern commits only
-     * after success). The name is UTF7-IMAP — the same raw key the client reads
-     * from each row anchor's rel attribute.
+     * Stash the icon chosen in the folder edit form and commit it immediately.
+     * Fired by the core's save-folder action (folder_save.php:156) with the
+     * submitted record, before the IMAP write and long before the edit-folder
+     * form is re-rendered (rcmail.php dispatcher loop → folder_edit::run() →
+     * output->send(), rcmail_output_html.php:605). Flushing at shutdown would
+     * be too late: the response HTML — Icon field and env map — is generated
+     * before any shutdown function runs, so the page would show the old icon
+     * until a manual reload. A prefs entry ahead of a failed rename is benign:
+     * the key is the folder name, so an unchanged (or never-created) folder
+     * simply keeps a harmless orphan entry until its next save/delete.
      */
     public function on_folder_update($args)
     {
@@ -296,20 +314,23 @@ class roundcube_iconizer extends rcube_plugin
 
         // save-folder always ends at overwrite_action('edit-folder') (the last
         // statement of folder_save.php's run()) — reaching here means the core's
-        // checks passed; the icon is committed in flush_pending_icon at request
-        // shutdown, after the core's own prefs writes (message_threading).
+        // checks passed. Commit now so the re-rendered form and env carry the
+        // fresh icon; flush_pending_icon stays as an idempotent safety net.
         $this->save_ran = true;
+        $this->flush_pending_icon();
 
         return $args;
     }
 
     /**
-     * Persist the stashed icon once the core's save-folder has run. Two paths:
-     * AJAX (render_response, rcmail_output_json::remote_response) and classic
-     * POST (rcube shutdown — the form submits via form.submit(), app.js:1128,
-     * so no JSON output object exists on that request and render_response never
-     * fires; the html path re-renders edit-folder and exits inside the
-     * dispatcher, rcmail.php:310). Idempotent via $save_ran.
+     * Persist the stashed icon once save-folder has committed it. on_folder_update
+     * flushes immediately (the classic-POST response re-renders edit-folder before
+     * any shutdown function runs, so a late flush would show the old icon until a
+     * manual reload); this stays as the idempotent safety net for any path that
+     * reaches it before the update hook — AJAX render_response (rcmail_output_json
+     * ::remote_response) and rcube shutdown (the form submits via form.submit(),
+     * app.js:1128, so no JSON output object exists on that request and the html
+     * path exits inside the dispatcher, rcmail.php:310). Idempotent via $save_ran.
      */
     public function on_render_response($args)
     {
