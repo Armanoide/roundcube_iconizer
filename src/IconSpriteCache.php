@@ -4,14 +4,7 @@ declare(strict_types=1);
 
 namespace Armanoide\Iconizer;
 
-/**
- * Local sprite mirror of the allowlisted icon packs (ADR 0004).
- *
- * A pack is downloaded once, server-side, from jsDelivr and written to
- * sprites/<pack>.svg (<symbol> per icon) + data/<pack>.json (searchable names).
- * After install the browser never calls api.iconify.design again. The fetcher is
- * injectable so tests never hit the network.
- */
+/** Local sprite mirror: packs downloaded once from jsDelivr into sprites/ + data/, so the browser never calls api.iconify.design again. */
 final class IconSpriteCache
 {
     /** Full-pack data source: npm @iconify-json/* served by jsDelivr. */
@@ -20,10 +13,7 @@ final class IconSpriteCache
     /** @var callable(string):?string fetches a URL, null on failure */
     private $fetcher;
 
-    /**
-     * @param callable(string):?string|null $fetcher injectable URL fetcher
-     *        (tests stub it); production uses PHP curl with a hard timeout.
-     */
+    /** Injectable fetcher: tests stub it; production uses PHP curl with a hard timeout. */
     public function __construct(
         private string $spriteDir,
         private string $dataDir,
@@ -122,8 +112,7 @@ final class IconSpriteCache
             }
         }
 
-        // Verify the writes: a failed write (e.g. read-only dir) must report failure,
-        // not ok=true with files that don't exist. This is what made install lie before.
+        // Verify the writes: a failed write (read-only dir) must report failure, not ok=true with files that don't exist.
         $sprite = $this->renderSprite($symbols);
         if (@file_put_contents($this->spritePath($pack), $sprite) === false) {
             return ['ok' => false, 'count' => 0, 'error' => "cannot write sprite: {$this->spritePath($pack)}"];
@@ -189,7 +178,8 @@ final class IconSpriteCache
         $id   = htmlspecialchars($name, ENT_QUOTES);
         $view = htmlspecialchars((string) ($icon['width'] ?? 24) . ' ' . (string) ($icon['height'] ?? 24), ENT_QUOTES);
 
-        return "<symbol id=\"{$id}\" viewBox=\"0 0 {$view}\">{$body}</symbol>";
+        // Same supply-chain sanitization as inline bodies: the sprite is served same-origin.
+        return "<symbol id=\"{$id}\" viewBox=\"0 0 {$view}\">" . IconFetcher::sanitize($body) . '</symbol>';
     }
 
     /** @param array<string,string> $symbols */

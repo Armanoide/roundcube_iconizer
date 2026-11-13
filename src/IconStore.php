@@ -4,15 +4,7 @@ declare(strict_types=1);
 
 namespace Armanoide\Iconizer;
 
-/**
- * User's folder→icon choices, keyed by raw IMAP folder name.
- *
- * Deliberately storage-agnostic so the seam is testable without Roundcube:
- * in production the plugin hydrates it from `$rcmail->user->get_prefs()`
- * (users.preferences, JSON) and writes back with save_prefs() — the prefs are
- * the source, this object is the working copy (card 02). Keys are never
- * re-encoded: same raw name the client reads from each row anchor's rel.
- */
+/** folder→icon choices keyed by raw IMAP names, never re-encoded — the client matches each row anchor's rel. Prefs are the source; this is the testable working copy. */
 final class IconStore
 {
     /** @var array<string, array{icon: string, svg: ?string}> */
@@ -70,11 +62,7 @@ final class IconStore
         $this->persist();
     }
 
-    /**
-     * Move the entry of a renamed folder, and of every subfolder below it, to
-     * the new path — same prefix rewrite the core applies to message_threading
-     * in folder_rename (program/actions/settings/folder_rename.php).
-     */
+    /** Move a renamed folder's entry and every subfolder below it — same prefix rewrite the core applies in folder_rename. */
     public function rename(string $oldFolder, string $newFolder, string $delimiter = '/'): void
     {
         $prefix = $oldFolder . $delimiter;
@@ -100,6 +88,34 @@ final class IconStore
         }
 
         return $out;
+    }
+
+    /** Does the store hold any subfolder entry below $folder? */
+    public function hasChildren(string $folder, string $delimiter = '/'): bool
+    {
+        $prefix = $folder . $delimiter;
+
+        foreach (array_keys($this->rows) as $key) {
+            if (str_starts_with($key, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Forget $folder and every subfolder below it. */
+    public function forgetTree(string $folder, string $delimiter = '/'): void
+    {
+        $prefix = $folder . $delimiter;
+
+        foreach (array_keys($this->rows) as $key) {
+            if ($key === $folder || str_starts_with($key, $prefix)) {
+                unset($this->rows[$key]);
+            }
+        }
+
+        $this->persist();
     }
 
     private function persist(): void

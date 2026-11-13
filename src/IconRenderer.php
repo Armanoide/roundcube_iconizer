@@ -4,25 +4,13 @@ declare(strict_types=1);
 
 namespace Armanoide\Iconizer;
 
-/**
- * Renders an Iconify reference as inline SVG markup for one folder row.
- *
- * The fetched body is cached by the caller (user preference) so repaints do
- * not hit the network — spec 00, "cached resolved SVG". This class only turns
- * a body into markup; it never fetches.
- */
+/** Body → inline SVG markup only, never fetches — caching the body is the caller's job (user prefs). */
 final class IconRenderer
 {
     /** CSS classes Roundcube/Elastic uses to place the row icon. */
     public const ROW_CLASS = 'iconizer-icon';
 
-    /**
-     * Build the inline SVG for a folder row from an Iconify body payload.
-     *
-     * currentColor keeps the Catppuccin theme in charge of colour (ADR 0003).
-     *
-     * @param string $body raw SVG body from the Iconify API (inner markup)
-     */
+    /** currentColor keeps the Catppuccin theme in charge of colour. */
     public static function svg(string $body, int $size = 16): string
     {
         return sprintf(
@@ -36,10 +24,7 @@ final class IconRenderer
         );
     }
 
-    /**
-     * Build a <span> that uses the bundled Tabler webfont glyph instead of SVG.
-     * Used when the API is unreachable and the icon exists in the local font.
-     */
+    /** Bundled Tabler webfont glyph fallback: used when the API is unreachable and the icon exists in the local font. */
     public static function webfont(string $iconName, int $size = 16): string
     {
         return sprintf(
@@ -50,10 +35,13 @@ final class IconRenderer
         );
     }
 
-    /**
-     * Iconify API URL for one reference. Kept here so the fetcher and the
-     * tests agree on one shape.
-     */
+    /** JSON_HEX_TAG: a user-controlled folder named "</script>" would close the tag (core bug #6207 class). */
+    public static function inlineJson(mixed $data): string
+    {
+        return (string) json_encode($data, JSON_HEX_TAG | JSON_UNESCAPED_UNICODE);
+    }
+
+    /** One Iconify URL shape, kept here so the fetcher and the tests agree. */
     public static function apiUrl(string $reference, string $host = 'https://api.iconify.design'): string
     {
         $parts = IconResolver::parse($reference);

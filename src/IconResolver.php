@@ -4,41 +4,23 @@ declare(strict_types=1);
 
 namespace Armanoide\Iconizer;
 
-/**
- * Decides which icon a sidebar folder row should show.
- *
- * Pure: no Roundcube, no database, no network. This is the single seam the
- * tests target (spec 00, "Testing Decisions").
- */
+/** Which icon a row shows. Pure seam for the tests: no Roundcube, no database, no network. */
 final class IconResolver
 {
-    /** Packs the picker is allowed to offer (ADR 0002). */
+    /** Packs the picker is allowed to offer. */
     public const ALLOWED_PACKS = ['bi', 'fa-solid', 'fa-regular', 'fa-brands', 'ic', 'mdi', 'simple-icons'];
 
     /** Fallback reference when nothing is configured or nothing resolves. */
     public const DEFAULT_ICON = 'bi:folder';
 
-    /**
-     * @param array<string, string> $overrides folder reference (UTF-7-IMAP) => "pack:name"
-     * @param list<string>          $allowedPacks
-     */
+    /** @param array<string,string> $overrides folder ref (UTF-7-IMAP) => "pack:name" */
     public function __construct(
         private array $overrides = [],
         private array $allowedPacks = self::ALLOWED_PACKS,
     ) {
     }
 
-    /**
-     * Resolve the icon reference for one folder row.
-     *
-     * Precedence: explicit override (if the pack is allowed and resolvable)
-     * > system default for known special folders > generic folder icon.
-     *
-     * @param string $folder    folder reference, UTF-7-IMAP encoded as Roundcube stores it
-     * @param bool   $isSystem  true for Elastic special folders (inbox, trash, ...)
-     * @param bool   $online    false when the Iconify API is unreachable
-     * @param list<string> $offlineIcons references present in the bundled fallback font
-     */
+    /** Precedence: allowed override (offline: only if the bundled font carries it) > generic folder icon. */
     public function resolve(string $folder, bool $isSystem = false, bool $online = true, array $offlineIcons = []): string
     {
         $override = $this->overrides[$folder] ?? null;
@@ -58,8 +40,7 @@ final class IconResolver
     /** Split "pack:name" into its two halves; null when malformed. */
     public static function parse(string $reference): ?array
     {
-        // Le pack peut contenir un tiret (fa-solid, fa-brands, simple-icons) :
-        // [a-z0-9]+ seul rejetait ces packs et les faisait retomber sur le default.
+        // Packs contain dashes (fa-solid, fa-brands, simple-icons) — [a-z0-9]+ alone dropped them to the default.
         if (!preg_match('/^([a-z0-9-]+):([a-z0-9-]+)$/', $reference, $m)) {
             return null;
         }
@@ -74,7 +55,7 @@ final class IconResolver
         return $parts !== null && in_array($parts[0], $this->allowedPacks, true);
     }
 
-    /** @return list<string> the packs the picker may offer (ADR 0002) */
+    /** @return list<string> the packs the picker may offer */
     public function allowedPacks(): array
     {
         return $this->allowedPacks;

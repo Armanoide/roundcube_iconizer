@@ -4,13 +4,7 @@ declare(strict_types=1);
 
 namespace Armanoide\Iconizer;
 
-/**
- * Preferences → "Icon packs" (ADR 0004): install/remove the local sprite mirrors.
- *
- * Checkboxes, not buttons: this section renders inside Roundcube's save-prefs form,
- * so a nested <form> is dropped by the browser. Real preference options are serialized
- * and posted by the core's own Save button.
- */
+/** Preferences "Icon packs": checkboxes, not buttons — a nested <form> is dropped inside the core's save-prefs form; its Save posts the options. */
 final class PreferencesUI
 {
     private $sprites;

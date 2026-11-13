@@ -4,14 +4,7 @@ declare(strict_types=1);
 
 namespace Armanoide\Iconizer;
 
-/**
- * The packs the Icon field may offer (ADR 0002): prefix => human label,
- * Bootstrap first — the default pack shown by the picker.
- *
- * Verified against https://api.iconify.design/collections (2026-11-13):
- * RPG Awesome (`ra`) no longer exists on Iconify (replaced upstream by
- * `game-icons`); Simple Icons is `simple-icons`, not `si` (`si` = Sargam).
- */
+/** prefix => label, Bootstrap first (picker default). Prefixes verified against api.iconify.design/collections: `ra` no longer exists, Simple Icons is `simple-icons` not `si` (`si` = Sargam). */
 final class IconPacks
 {
     /** @var array<string, string> */

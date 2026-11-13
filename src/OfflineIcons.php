@@ -4,12 +4,7 @@ declare(strict_types=1);
 
 namespace Armanoide\Iconizer;
 
-/**
- * Names of icons shipped in the bundled Tabler webfont fallback.
- *
- * Generated subset: keep this list to what a mail sidebar plausibly needs so
- * the offline path stays small. Regenerate with bin/build-offline-list.php.
- */
+/** Bundled Tabler fallback names — generated subset kept to what a mail sidebar needs; regenerate with bin/build-offline-list.php. */
 final class OfflineIcons
 {
     /** @var list<string> */

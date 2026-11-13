@@ -1,23 +1,11 @@
-/**
- * roundcube_iconizer — searchable icon picker for the folder edit form (card 02).
- *
- * Inlined by the plugin into the folder-edit page because the core drops
- * registered script files when it re-renders that form after a failed save.
- * Vanilla JS, no build step (ADR 0001).
- *
- * ADR 0004: search runs against the LOCAL sprite mirror — data/<pack>.json is
- * fetched once per installed pack and filtered client-side; icons render from
- * <svg><use href="sprites/<pack>.svg#<name>">. The picker offers only installed
- * packs, so no request ever leaves the browser to api.iconify.design. A pack
- * outside the allowlist can never appear, and the server re-checks on save anyway.
- */
+// Inlined (the core drops registered scripts on failed save); search runs on the local sprite mirror — nothing leaves the browser.
 (function () {
     'use strict';
 
-    // ADR 0002 — mirrors IconResolver::ALLOWED_PACKS / IconPacks::PACKS.
+    // Mirrors IconResolver::ALLOWED_PACKS / IconPacks::PACKS.
     var PACKS = { bi: 'Bootstrap Icons', 'fa-solid': 'Font Awesome Solid', 'fa-regular': 'Font Awesome Regular', 'fa-brands': 'Font Awesome Brands', ic: 'Google Material Icons', mdi: 'Material Design Icons', 'simple-icons': 'Simple Icons' };
 
-    // Sprite base + installed packs, published by the plugin (ADR 0004).
+    // Sprite base + installed packs, published by the plugin.
     var env = (window.rcmail && window.rcmail.env) || {};
     var SPRITE_BASE = env.iconizer_sprite_base || 'plugins/roundcube_iconizer/sprites/';
     var INSTALLED = env.iconizer_installed || [];
@@ -27,7 +15,7 @@
 
     function esc(s) {
         return String(s).replace(/[&<>"']/g, function (c) {
-            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39' }[c];
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
         });
     }
 
@@ -75,7 +63,7 @@
         var pack = button.getAttribute('data-pack') || '';
         var selected = hidden.value || '';
 
-        // Only installed packs are selectable (ADR 0004): no sprite, no icon.
+        // Only installed packs are selectable: no sprite, no icon.
         var available = INSTALLED.filter(function (p) { return PACKS[p]; });
 
         // One overlay for the whole document; opened on every button click.
@@ -198,8 +186,7 @@
 
             if (!term) {
                 if (!p) {
-                    // "All" is the default and must show something: preview every
-                    // installed pack round-robin so each one appears in the grid.
+                    // "All" is the default and must show something: round-robin across installed packs so each appears in the grid.
                     Promise.all(available.map(function (t) { return namesOf(t); }))
                         .then(function (chunks) {
                             var refs = [], i = 0, more = true;
@@ -240,7 +227,7 @@
                 cell.className = 'iconizer-cell' + (ref === selected ? ' selected' : '');
                 cell.setAttribute('data-ref', ref);
                 cell.title = ref;
-                // Local sprite <use>: same-origin, currentColor, zero CDN (ADR 0004).
+                // Local sprite <use>: same-origin, currentColor, zero CDN.
                 cell.innerHTML = spriteUse(ref, 24);
                 grid.appendChild(cell);
             });

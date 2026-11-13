@@ -2,24 +2,23 @@
 
 declare(strict_types=1);
 
-/**
- * Test runner — no framework, no Roundcube. Run: php bin/run-tests.php
- *
- * Targets the IconResolver seam (spec 00 "Testing Decisions"): external
- * behaviour only, never internals.
- */
+/** Test runner — no framework, no Roundcube. Run: php bin/run-tests.php. Targets the IconResolver seam: external behaviour only, never internals. */
 
 require __DIR__ . '/../src/IconResolver.php';
 require __DIR__ . '/../src/IconPacks.php';
 require __DIR__ . '/../src/IconRenderer.php';
 require __DIR__ . '/../src/OfflineIcons.php';
 require __DIR__ . '/../src/IconStore.php';
+require __DIR__ . '/../src/IconFetcher.php';
+require __DIR__ . '/../src/ClientBridge.php';
 
 use Armanoide\Iconizer\IconResolver;
 use Armanoide\Iconizer\IconPacks;
 use Armanoide\Iconizer\IconRenderer;
+use Armanoide\Iconizer\ClientBridge;
 use Armanoide\Iconizer\OfflineIcons;
 use Armanoide\Iconizer\IconStore;
+use Armanoide\Iconizer\IconFetcher;
 
 $pass = 0;
 $fail = 0;
@@ -67,9 +66,9 @@ check('rejects malformed (empty name)', IconResolver::parse('tabler:') === null)
 check('rejects uppercase pack', IconResolver::parse('Tabler:folder') === null);
 check('isAllowed accepts allowlisted pack', (new IconResolver())->isAllowed('bi:x') === true);
 check('isAllowed rejects unknown pack', (new IconResolver())->isAllowed('hugeicons:x') === false);
-check('allowedPacks lists the curated packs, bi first (ADR 0002)', IconResolver::ALLOWED_PACKS === ['bi', 'fa-solid', 'fa-regular', 'fa-brands', 'ic', 'mdi', 'simple-icons']);
+check('allowedPacks lists the curated packs, bi first', IconResolver::ALLOWED_PACKS === ['bi', 'fa-solid', 'fa-regular', 'fa-brands', 'ic', 'mdi', 'simple-icons']);
 check('allowedPacks() exposes them to the form', (new IconResolver())->allowedPacks() === IconResolver::ALLOWED_PACKS);
-check('picker packs match the resolver allowlist (ADR 0002)', IconPacks::prefixes() === IconResolver::ALLOWED_PACKS);
+check('picker packs match the resolver allowlist', IconPacks::prefixes() === IconResolver::ALLOWED_PACKS);
 check('picker labels the packs for humans', IconPacks::label('mdi') === 'Material Design Icons');
 check('parse anchors the picker pack on the current choice', (IconResolver::parse('mdi:file-invoice') ?? [null])[0] === 'mdi');
 
@@ -95,6 +94,24 @@ try {
 }
 check('api url rejects malformed reference', $threw);
 
+echo "\nInline JSON & SVG sanitization (XSS #6207 class)\n";
+$xss = IconRenderer::inlineJson(['</script><svg onload=alert(1)>' => 'bi:folder']);
+check('inlineJson escapes the script-tag breakout in folder names', !str_contains($xss, '<'));
+check('inlineJson keeps the payload parseable', is_array(json_decode($xss, true)));
+$dirty = IconFetcher::sanitize('<path d="M0 0h1"/><script>alert(1)</script><g onload="x()"><circle href="http://evil/x"/></g>');
+check('sanitize strips scripts', !str_contains($dirty, 'script'));
+check('sanitize strips event handlers', !str_contains($dirty, 'onload'));
+check('sanitize strips external hrefs', !str_contains($dirty, 'evil'));
+check('sanitize keeps vector markup', str_contains($dirty, '<path d="M0 0h1"/>') && str_contains($dirty, '<g>'));
+
+echo "\nClientBridge (iframe plumbing, statics)\n";
+$rescue = ClientBridge::rescueScript(IconRenderer::inlineJson(['a</script>b' => 'bi:folder']), 'x');
+check('rescue script escapes the map payload', !str_contains($rescue, '</script>b'));
+check('rescue script rides the repaint hint', str_contains($rescue, 'iconizer_paint'));
+$rescueNoHint = ClientBridge::rescueScript('{}', null);
+check('rescue script without hint has no repaint tick', !str_contains($rescueNoHint, 'iconizer_paint'));
+check('mirror js guards the parent once', str_contains(ClientBridge::mirrorJs('var x=1;'), '__iconizerArmed'));
+
 echo "\nOfflineIcons\n";
 check('default icon is available offline', OfflineIcons::has(IconResolver::DEFAULT_ICON));
 $offline = OfflineIcons::all();
@@ -116,7 +133,7 @@ $s2->forget('Projets');
 check('forget removes the entry', (new IconStore($tmp))->get('Projets') === null);
 unlink($tmp);
 
-echo "\nIconStore — prefs round-trip (source = users.preferences, card 02)\n";
+echo "\nIconStore — prefs round-trip (source = users.preferences)\n";
 $prefs_rows = ['Administration' => ['icon' => 'bi:briefcase', 'svg' => '<rect/>']];
 $p = new IconStore();
 $p->hydrate($prefs_rows);
@@ -185,7 +202,7 @@ check(
 );
 unlink($tmp);
 
-echo "\nIconSpriteCache (ADR 0004)\n";
+echo "\nIconSpriteCache\n";
 
 require __DIR__ . '/../src/IconSpriteCache.php';
 use Armanoide\Iconizer\IconSpriteCache;

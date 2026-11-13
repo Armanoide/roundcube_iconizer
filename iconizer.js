@@ -1,17 +1,9 @@
-/**
- * roundcube_iconizer — sidebar painter.
- *
- * Replaces Elastic's folder glyph with the user's icon on rows that have a
- * mapping. Rows are keyed by the anchor's rel attribute — the raw IMAP folder
- * name, published as rcmail.env.iconizer_icons. No id decoding: the core's
- * html_identifier is not reimplemented here (ADR 0003).
- */
+// Sidebar painter: replaces Elastic's glyph on mapped rows. Rows keyed by anchor rel (raw IMAP name) — no id decoding.
 (function () {
     'use strict';
 
     function painter() {
-        // this = the window whose tree must be painted (the frame itself, or the
-        // parent via armParentFromIframe). window.rcmail carries the env there.
+        // this = the frame whose tree gets painted; its rcmail carries the env.
         var self = this || window;
         var env = self.rcmail && self.rcmail.env ? self.rcmail.env : null;
         if (!env || !env.iconizer_icons) {
@@ -19,9 +11,7 @@
         }
 
         var ICONS = env.iconizer_icons;
-        // Packs with a local sprite + the sprite URL base (ADR 0004). When a ref's
-        // pack is installed, the row paints from <use href="sprites/<pack>.svg#name">
-        // — same-origin, currentColor, no CDN. entry.svg (inline cache) is the fallback.
+        // Installed packs paint via same-origin <use> sprites (currentColor, no CDN); entry.svg is the fallback.
         var INSTALLED = env.iconizer_installed || [];
         var SPRITE_BASE = env.iconizer_sprite_base || '';
 
@@ -51,24 +41,6 @@
             return null;
         }
 
-        function makeIconNode(entry) {
-            var holder = self.document.createElement('span');
-            holder.className = 'iconizer-holder';
-
-            // Local sprite first (ADR 0004): no CDN, currentColor themes for free.
-            if (hasSprite(entry.ref)) {
-                holder.innerHTML = spriteUse(entry.ref);
-                return holder;
-            }
-
-            if (entry.svg) {
-                holder.innerHTML = entry.svg;
-            }
-            // No sprite, no inline cache: leave the holder empty. ADR 0004 forbids a
-            // runtime Iconify call; the Elastic glyph stays until the pack is installed.
-            return holder;
-        }
-
         function paintRow(li) {
             var entry = entryFor(li);
             if (!entry) return;
@@ -76,46 +48,35 @@
             var anchor = li.querySelector(':scope > a');
             if (!anchor) return;
 
-            // Idempotent: paintAll runs on many events (AJAX, folderUpdated, the
-            // MutationObserver). Remove any holder already there so we never stack a
-            // second icon, then insert exactly one reflecting the current ref.
+            // Idempotent: many events trigger repaint — drop the old holder before inserting one.
             anchor.querySelectorAll(':scope > .iconizer-holder').forEach(function (n) { n.remove(); });
 
             var markup = hasSprite(entry.ref) ? spriteUse(entry.ref) : (entry.svg || '');
-            if (markup) {
-                anchor.insertAdjacentHTML('afterbegin', '<span class="iconizer-holder">' + markup + '</span>');
-            } else {
+            if (!markup) {
                 // No sprite, no inline cache: the Elastic glyph stays until the pack installs.
-                anchor.insertBefore(makeIconNode(entry), anchor.firstChild);
+                return;
             }
+            anchor.insertAdjacentHTML('afterbegin', '<span class="iconizer-holder">' + markup + '</span>');
             li.classList.add('iconizer-painted');
         }
 
-        // Plugin command: the classic save-folder POST emits it toward the parent
-        // frame (rcmail_output_html.php:843-853) as the twin of replace_folder_row
-        // (app.js:8064) which sets the name — same mechanism, on the icon. Paints
-        // the targeted row; with no target it paints the whole tree.
+        // Emitted by the classic save-folder POST toward the parent frame (twin of replace_folder_row): paint one row, or the whole tree with no target.
         self.rcmail.iconizer_paint = function (folder) {
             ICONS = (self.rcmail.env && self.rcmail.env.iconizer_icons) || ICONS;
 
-            // The tree row lives in the parent frame (subscription-table). On a
-            // deep-link into edit-folder, self.document is the iframe's: getElementById
-            // misses and nothing is painted. So target the parent document when present.
+            // Rows live in the parent frame — on an edit-folder deep-link self.document is the iframe's and getElementById misses.
             var doc = (self.parent && self.parent !== self && self.parent.document) ? self.parent.document : self.document;
             var li  = folder ? doc.getElementById('rcmli' + self.rcmail.html_identifier_encode(folder)) : null;
 
             if (folder && !li) {
-                // Two cases with no row under the submitted name: a rename (the core is
-                // replacing the <li> — its add_folder_row + our observer catch up) and
-                // removing the icon on an already-painted row (entryFor fails, unpaint).
+                // No row under the submitted name: a rename (observer catches up) or an icon removal — unpaint painted rows.
                 if (ICONS[folder]) return;
                 doc.querySelectorAll('.folderlist li.mailbox.iconizer-painted').forEach(unpaintRow);
                 return;
             }
 
             if (li) {
-                // Self-check: a target with no existing row is a no-op, not a wipe —
-                // renames go through replace_folder_row + the observer.
+                // A target with no existing row is a no-op, not a wipe — renames go through replace_folder_row + the observer.
                 if (!ICONS[folder] && !li.classList.contains('iconizer-painted')) return;
                 if (ICONS[folder]) paintRow(li); else unpaintRow(li);
             } else {
@@ -140,8 +101,7 @@
         }
 
         function repaintFromPrefs(e) {
-            // The plugin returns the fresh map in every AJAX response env (save/rename/
-            // delete): the sidebar follows without a manual reload.
+            // The plugin returns the fresh map in every AJAX response env — the sidebar follows without a reload.
             if (e && e.response && e.response.env && e.response.env.iconizer_icons) {
                 ICONS = e.response.env.iconizer_icons;
             }
@@ -149,16 +109,14 @@
         }
 
         if (self.rcmail && self.rcmail.addEventListener) {
-            // Exact core event names (app.js:9652/9851): "responsebefore"/"responseafter"
-            // — the spaced variants do not exist.
+            // Exact core event names: "responsebefore"/"responseafter" — the spaced variants do not exist.
             self.rcmail.addEventListener('responsebefore', paintAll);
             self.rcmail.addEventListener('responseafter', paintAll);
             self.rcmail.addEventListener('folderUpdated', repaintFromPrefs);
             self.rcmail.addEventListener('imap_folders_changed', paintAll);
         }
 
-        // treelist rebuilds rows on search/expand/AJAX; repaint on DOM changes.
-        // The observer disconnects while mutating so our own edits never retrigger it.
+        // treelist rebuilds rows on search/expand/AJAX; the observer disconnects while mutating so our edits never retrigger it.
         if (self.MutationObserver) {
             var list = self.document.querySelector('.folderlist');
             if (list) {
@@ -178,16 +136,7 @@
         }
     }
 
-    // The classic save-folder POST answers send('iframe'): every command is rewritten
-    // as parent.rcmail.<cmd>() (rcmail_output_html.php:843-853) and write() empties
-    // script_files AND $this->scripts (:655-660) — so the iframe carries neither this
-    // painter nor its own rcmail (skins/elastic/ui.js: `rcmail=parent.rcmail` when
-    // window.rcmail is absent). The visible tree (subscriptionlist, app.js:7882/8065)
-    // lives in the parent frame, so that is where the painter must be armed. When this
-    // script runs inside an iframe it installs its painter into the parent (this=parent:
-    // window, document and the inner rcmail become the parent's) and repaints its tree
-    // with the current env map — the frame's when it carries one (full page), otherwise
-    // the one ensure_map_in_html's inline hint just wrote there.
+    // iframe save: the core drops scripts and rewrites commands as parent.rcmail.* — arm and repaint in the parent frame.
     function armParentFromIframe() {
         var P = window.parent;
         try {
@@ -206,8 +155,7 @@
     }
 
     function boot() {
-        // The core's global `var rcmail` (rcmail_output_html.php:147) makes the bare
-        // reference possible; window.rcmail is safer in strict mode.
+        // window.rcmail, not the core's bare global — safer in strict mode.
         if (window.rcmail && window.rcmail.env && window.rcmail.env.iconizer_icons) {
             painter.call(window);
         } else if (window.parent && window.parent !== window) {

@@ -1,11 +1,5 @@
 <?php
-/**
- * Smoke test — run INSIDE the roundcubemail container:
- *   docker exec roundcubemail php /var/www/html/plugins/roundcube_iconizer/tests/smoke.php
- *
- * Black-box: logs in through the bundled autologon plugin (localhost only),
- * then asserts what the browser would see. No plugin internals touched.
- */
+/** Smoke test, run INSIDE the roundcubemail container: docker exec roundcubemail php /var/www/html/plugins/roundcube_iconizer/tests/smoke.php — black-box autologon, asserts only what the browser would see. */
 
 $base = 'http://127.0.0.1';
 $jar  = '/tmp/iconizer-smoke-cookies.txt';
