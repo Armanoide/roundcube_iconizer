@@ -236,20 +236,31 @@ class roundcube_iconizer extends rcube_plugin
             return $args;
         }
 
+        // Le POST classique save-folder se termine sur une réponse iframe : le cœur
+        // émet replace_folder_row/add_folder_row en commands parent.* AVANT cet
+        // append (rcmail_output_html.php:843-853, posées dans page_header avant
+        // </head> :2036-2039), puis write() vide scripts ET script_files (:655-660).
+        // Ce hint inline est donc le dernier script exécuté : il met l'env du parent
+        // à jour (rcmail y est parent.rcmail, skins/elastic/ui.js) et repeint la
+        // ligne du parent. Si iconizer.js n'a jamais tourné dans le parent (deep-link
+        // direct sur edit-folder), rcmail.iconizer_paint n'existe pas : le fallback
+        // inline peint lui-même, après un tick qui laisse add_folder_row (appelé en
+        // synchrone par replace_folder_row, app.js:8119) poser la ligne nouvelle.
         $script = "<script>window.rcmail&&(rcmail.env.iconizer_icons={$json});";
         if ($hint) {
-            // Le POST classique save-folder se termine sur une réponse iframe dont
-            // write() vide les scripts enregistrés (rcmail_output_html.php:653-658) :
-            // la commande iconizer_paint et l'env rafraîchi n'atteignent pas le
-            // parent par ce chemin. Le hint complet (cible + SVG frais) est réémis
-            // ici en inline ; le parent l'applique après que le cœur a posé sa ligne.
             $folder = json_encode($this->pending_paint_folder);
             $svg    = json_encode((string) $this->pending_paint_svg);
             $script .= "window.setTimeout(function(){var r=window.rcmail;if(!r)return;"
-                . "var f=" . $folder . ",svg=" . $svg . ";r.env.iconizer_icons=r.env.iconizer_icons||{};"
-                . "if(svg)r.env.iconizer_icons[f]={ref:r.env.iconizer_icons[f]?r.env.iconizer_icons[f].ref:'',svg:svg};"
+                . "var f=" . $folder . ",svg=" . $svg . ";"
+                . "if(svg)r.env.iconizer_icons[f]={ref:(r.env.iconizer_icons[f]||{}).ref||'',svg:svg};"
                 . "else delete r.env.iconizer_icons[f];"
-                . "r.iconizer_paint&&r.iconizer_paint(f);},0);";
+                . "if(r.iconizer_paint){r.iconizer_paint(f);return;}"
+                . "var p=window.parent;if(!p||p===window||!p.document)return;"
+                . "var li=p.document.getElementById('rcmli'+r.html_identifier_encode(f));if(!li)return;"
+                . "var a=li.querySelector(':scope > a');if(!a)return;"
+                . "var o=a.querySelector(':scope > .iconizer-holder');if(o)o.remove();"
+                . "if(svg){a.insertAdjacentHTML('afterbegin','<span class=\"iconizer-holder\">'+svg+'</span>');li.classList.add('iconizer-painted');}"
+                . "else li.classList.remove('iconizer-painted');},0);";
         }
         $script .= "</script>";
 
@@ -348,9 +359,13 @@ class roundcube_iconizer extends rcube_plugin
         // checks passed. Commit now so the re-rendered form and env carry the
         // fresh icon; flush_pending_icon stays as an idempotent safety net.
         $this->save_ran = true;
-        // Le nom submitted du POST : si la réponse est une iframe (chemin
-        // renommage), le frame parent devra repeindre la ligne OLD encore visible
-        // — pending_paint_folder garde l'ancien nom, pas le nouveau.
+        // Le POST classique save-folder répond send('iframe') quand le tree du
+        // parent existe (page folders ouverte) : la commande iconizer_paint part en
+        // parent.rcmail.iconizer_paint() (rcmail_output_html.php:843-853), la
+        // commande jumelle de replace_folder_row (folders.php:372 → app.js:8064)
+        // qui pose le nom — même mécanique, sur l'icône. Sans tree dans le parent
+        // (deep-link direct sur edit-folder), la peinture voyage dans le hint
+        // inline de ensure_map_in_html, qui arme le painter du parent et repeint.
         $this->pending_paint_folder = (string) ($args['record']['oldname'] ?: $args['record']['name'] ?? '');
         $this->flush_pending_icon();
 
@@ -407,20 +422,18 @@ class roundcube_iconizer extends rcube_plugin
             $this->store->put($this->pending_folder, $this->pending_icon, $this->fetchBody($this->pending_icon));
         }
 
-        // Le nom submitted du POST : si la réponse est une iframe (chemin
-        // renommage), le frame parent devra repeindre la ligne OLD encore visible.
+        // Cible de la peinture : sur renommage le parent porte encore la ligne OLD
+        // (replace_folder_row la remplace en synchrone, puis add_folder_row pose la
+        // nouvelle avec le nouveau nom — l'observer du painter rattrape la peinture).
         $paint_target = $old !== '' && $old !== $this->pending_folder ? $old : $this->pending_folder;
         $svg          = $this->store->svg($this->pending_folder);
 
         if ($this->save_prefs()) {
             $this->republish(); // la réponse AJAX rapporte la carte à jour au client
 
-            // Le renommage se peint dans la sidebar parce que le cœur émet
-            // replace_folder_row/add_folder_row en réponse à ce POST classique
-            // (folders.php:368/370 → app.js:7881/8064, relayé vers le frame parent
-            // par la commande en iframe, rcmail_output_html.php:843-853). Ces
-            // commandes ne touchent que le nom : on émet la commande jumelle pour
-            // repeindre l'icône de la ligne sur ce même chemin, sans rechargement.
+            // Commande jumelle de replace_folder_row/add_folder_row (folders.php:368/
+            // 370 → app.js:7881/8064) : émise sur ce POST classique, relayée vers le
+            // frame parent par la réponse iframe (rcmail_output_html.php:843-853).
             $rcmail->output->command('iconizer_paint', $paint_target);
 
             // Le parent ne reçoit pas l'env de cette requête (iframe) : le SVG
