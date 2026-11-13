@@ -202,11 +202,16 @@ class roundcube_iconizer extends rcube_plugin
         // window from this inline script so iconizer_paint and its observers exist
         // where the subscription-table actually is. Same-origin only; a parse failure
         // in the parent just leaves the existing painter untouched.
-        $js = json_encode($js);
-        $mirror = "<script>(function(){try{var p=window.parent;if(p&&p!==window&&p.document&&!p.__iconizerArmed){"
-            . "var d=p.document.createElement('script');d.textContent={$js};d.id='iconizer-painter';p.document.body.appendChild(d);p.__iconizerArmed=1;}}catch(e){}})();</script>";
+        // The painter source is embedded as a JS string literal (json_encode), NOT
+        // wrapped in <script> tags: add_script() already emits a script element, so
+        // literal tags here close it early and inject raw JS text as HTML markup —
+        // that was the "Unexpected token '<'" crash. It also never ran, so the parent
+        // painter was not armed: json_parse it and eval() to actually install it.
+        $js      = json_encode($js);
+        $mirror  = "(function(){try{var p=window.parent;if(p&&p!==window&&p.document&&!p.__iconizerArmed){"
+            . "var d=p.document.createElement('script');d.textContent=JSON.parse({$js});d.id='iconizer-painter';p.document.body.appendChild(d);p.__iconizerArmed=1;}}catch(e){}})();";
         if ($rcmail->output && method_exists($rcmail->output, 'add_script')) {
-            $rcmail->output->add_script(str_replace('{$js}', $js, $mirror));
+            $rcmail->output->add_script($mirror);
         }
     }
 
