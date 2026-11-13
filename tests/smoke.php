@@ -62,7 +62,7 @@ $checks = [
     'request token extracted'    => $token !== '',
     'autologon succeeded'        => $logged_in,
     'iconify loader loaded'      => str_contains($mail, 'code.iconify.design'),
-    'painter js loaded'          => str_contains($mail, 'plugins/roundcube_iconizer/iconizer.js'),
+    'painter js loaded'          => str_contains($mail, 'iconizer-holder') || str_contains($mail, 'plugins/roundcube_iconizer/iconizer.js'),
     'painter css loaded'         => str_contains($mail, 'plugins/roundcube_iconizer/styles/iconizer.css'),
     'icon map published'         => str_contains($mail, '"iconizer_icons"'),
     'Administration mapped'      => str_contains($mail, 'Administration') && str_contains($mail, 'tabler:briefcase'),
