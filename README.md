@@ -6,7 +6,7 @@ Custom per-folder icons in the Elastic sidebar — pick any icon from curated Ic
 [![Stars](https://img.shields.io/github/stars/Armanoide/roundcube_iconizer?style=flat-square&logo=github)](https://github.com/Armanoide/roundcube_iconizer/stargazers)
 [![Issues](https://img.shields.io/github/issues/Armanoide/roundcube_iconizer?style=flat-square)](https://github.com/Armanoide/roundcube_iconizer/issues)
 
-<!-- screenshot: sidebar with custom folder icons — add assets/screenshot.png -->
+![Folder icons in the Elastic sidebar](assets/preview/preview_01.png)
 
 ## Features
 
@@ -66,6 +66,8 @@ services:
 ## Usage
 
 **Install icon packs** — Settings → *Icon packs*: install/remove the sprite mirror for each pack.
+
+![Installing icon packs](assets/preview/preview_02.png)
 
 **Set a folder icon** — Settings → *Folders* → edit (or create) a folder → **Icon** field → search, pick, save. The sidebar repaints immediately — no reload.
 
