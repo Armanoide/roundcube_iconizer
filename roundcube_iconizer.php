@@ -245,6 +245,8 @@ class roundcube_iconizer extends rcube_plugin
      */
     public function save_folder(): void
     {
+        $this->bind_store();
+
         $rcmail     = rcmail::get_instance();
         $icon       = trim(rcube_utils::get_input_string('_iconizer_icon', rcube_utils::INPUT_POST));
         $old_folder = rcube_utils::get_input_string('_mbox', rcube_utils::INPUT_POST, true);
