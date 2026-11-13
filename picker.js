@@ -106,7 +106,9 @@
             if (svgSpan) svgSpan.textContent = ''; // périmé: le serveur re-résout à l'enregistrement
             button.setAttribute('title', selected || label('iconizerselect', 'Choose an icon'));
             var ref = button.querySelector('.iconizer-ref');
-            if (ref) ref.textContent = selected || label('iconizernone', 'None');
+            if (ref && ref.parentNode === button) {
+                ref.textContent = selected || label('iconizernone', 'None');
+            }
             paintButton();
             overlay.hidden = true;
         }
@@ -124,13 +126,24 @@
         function paintButton() {
             var old = button.querySelector('img');
             if (old) old.remove();
-            if (selected) {
-                var img = document.createElement('img');
-                img.src = API + '/' + selected.replace(':', '/') + '.svg';
-                img.alt = '';
-                img.width = 16;
-                img.height = 16;
-                button.insertBefore(img, button.querySelector('.iconizer-ref'));
+            if (!selected) {
+                return;
+            }
+
+            var img = document.createElement('img');
+            img.src = API + '/' + selected.replace(':', '/') + '.svg';
+            img.alt = '';
+            img.width = 16;
+            img.height = 16;
+            // Le cœur re-render le formulaire après save : .iconizer-ref peut ne plus
+            // être enfant de ce bouton (noeud orphelin ou absent) → insertBefore lève
+            // NotFoundError. Insertion robuste : avant ref seulement si ref est bien
+            // un enfant, sinon append (le contenu du bouton est reconstruit proprement).
+            var ref = button.querySelector('.iconizer-ref');
+            if (ref && ref.parentNode === button) {
+                button.insertBefore(img, ref);
+            } else {
+                button.appendChild(img);
             }
         }
 
