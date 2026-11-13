@@ -97,8 +97,10 @@
         }
 
         if (window.rcmail && rcmail.addEventListener) {
-            rcmail.addEventListener('response before script', paintAll);
-            rcmail.addEventListener('response after script', paintAll);
+            // Nom d'événement exact du cœur (app.js:9652/9851) : "responsebefore"/
+            // "responseafter" — les variantes avec espace n'existent pas.
+            rcmail.addEventListener('responsebefore', paintAll);
+            rcmail.addEventListener('responseafter', paintAll);
             rcmail.addEventListener('folderUpdated', repaintFromPrefs);
             rcmail.addEventListener('imap_folders_changed', paintAll);
         }
