@@ -61,8 +61,7 @@ final class PreferencesUI
             $installed = $this->sprites->isInstalled($prefix);
             $count     = $installed ? $this->sprites->count($prefix) : 0;
 
-            $field = new \rcube_input([
-                'type'  => 'checkbox',
+            $field = new \html_checkbox([
                 'name'  => '_iconizer_pack_' . $prefix,
                 'id'    => 'rcmfd_iconizer_' . $prefix,
                 'value' => 1,
@@ -74,7 +73,7 @@ final class PreferencesUI
             $options['pack_' . $prefix] = [
                 'key'     => 'pack_' . $prefix,
                 'title'   => $title,
-                'content' => $field->show($installed),
+                'content' => $field->show($installed ? 1 : 0),
             ];
         }
 
