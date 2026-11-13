@@ -24,6 +24,15 @@ Custom per-folder icons in the Elastic sidebar — pick any icon from curated Ic
 
 ## Installation
 
+### Composer (recommended)
+
+```bash
+cd /path/to/roundcube
+composer require armanoide/roundcube-iconizer
+```
+
+Then enable it in `config/config.inc.php` (step below).
+
 ### Manual
 
 1. Clone the plugin into your Roundcube `plugins` directory:
