@@ -13,6 +13,7 @@ require_once __DIR__ . '/src/IconRenderer.php';
 require_once __DIR__ . '/src/IconFetcher.php';
 require_once __DIR__ . '/src/IconStore.php';
 require_once __DIR__ . '/src/OfflineIcons.php';
+require_once __DIR__ . '/src/IconSpriteCache.php';
 
 use Armanoide\Iconizer\IconFetcher;
 use Armanoide\Iconizer\IconPacks;
@@ -20,6 +21,7 @@ use Armanoide\Iconizer\IconRenderer;
 use Armanoide\Iconizer\IconResolver;
 use Armanoide\Iconizer\IconStore;
 use Armanoide\Iconizer\OfflineIcons;
+use Armanoide\Iconizer\IconSpriteCache;
 
 /**
  * Roundcube plugin: custom per-folder icons in the Elastic sidebar.
@@ -82,12 +84,24 @@ class roundcube_iconizer extends rcube_plugin
                 continue;
             }
 
-            $svg = $this->store->svg($folder);
-            // A cached SVG is only valid for its own ref: a stale cache (pack changed
-            // without a re-pick) must never override the current ref.
+            $parsed = IconResolver::parse($ref);
+            $pack   = $parsed ? $parsed[0] : '';
+
+            // Primary path (ADR 0004): the pack has a local sprite, so the row paints
+            // from <use href="sprites/<pack>.svg#<name>"> built client-side — no inline
+            // SVG ships. Only when the pack has NO sprite installed do we fall back to
+            // the per-icon inline cache (a ref picked before install, or a pack removed).
+            $svg = '';
+            if (!$this->sprites()->isInstalled($pack)) {
+                $cached = $this->store->svg($folder);
+                // A cached SVG is only valid for its own ref: a stale cache (pack changed
+                // without a re-pick) must never override the current ref.
+                $svg = $cached !== null && $cached !== '' ? IconRenderer::svg($cached) : '';
+            }
+
             $icons[$folder] = [
                 'ref' => $ref,
-                'svg' => $svg !== null && $svg !== '' ? IconRenderer::svg($svg) : '',
+                'svg' => $svg,
             ];
         }
 
@@ -99,8 +113,8 @@ class roundcube_iconizer extends rcube_plugin
         $rcmail = rcmail::get_instance();
 
         // Assets are included at init: Roundcube flushes plugin JS/CSS when the
-        // page is sent, so they land on every html page.
-        $this->include_script('https://code.iconify.design/3/3.1.0/iconify.min.js');
+        // page is sent, so they land on every html page. No iconify.min.js: ADR 0004
+        // — icons render from local sprites, never a runtime CDN call.
         $this->include_stylesheet('styles/iconizer.css');
         // Inlined, not include_script: on the classic-POST save-folder rename path
         // the core answers with an iframe (folder_save.php:204 → send('iframe'))
@@ -127,6 +141,10 @@ class roundcube_iconizer extends rcube_plugin
 
         if ($rcmail->task === 'settings') {
             $this->add_hook('folder_form', [$this, 'folder_form']);
+            // Preferences → "Icon packs" (ADR 0004): install/remove the local sprite
+            // mirrors. The section renders here; each button posts to plugin.iconizer-pack.
+            $this->add_hook('preferences_sections_list', [$this, 'preferences_sections_list']);
+            $this->add_hook('preferences_list', [$this, 'preferences_list']);
             // The folder edit form submits to the core save-folder action. A plugin
             // cannot shadow a core action: rcube_plugin_api::register_action() force-
             // prefixes every registration with "plugin." (rcube_plugin_api.php:523),
@@ -156,6 +174,120 @@ class roundcube_iconizer extends rcube_plugin
         rcube::get_instance()->add_shutdown_function([$this, 'flush_pending_icon']);
 
         $this->register_action('plugin.iconizer-icon', [$this, 'icon_svg']);
+        // Install/remove a pack's local sprite (ADR 0004), posted by the Preferences
+        // "Icon packs" block. Registered for every task so the settings iframe reaches it.
+        $this->register_action('plugin.iconizer-pack', [$this, 'pack_action']);
+    }
+
+    /**
+     * Install or uninstall a pack's local sprite (ADR 0004). One download per pack,
+     * server-side; any authenticated user may — single-user homelab, packs allowlisted.
+     * Answers plain text: the buttons are standalone mini-forms, no JS runs on their
+     * submit. The mail frame picks the fresh sprites up on its next load.
+     */
+    public function pack_action(): void
+    {
+        // GPC: the buttons live in mini-forms inside the settings iframe; POST is the
+        // path, GET is a safe fallback (e.g. a manual link) — both reach the same handler.
+        $install   = rcube_utils::get_input_string('_iconizer_install', rcube_utils::INPUT_GPC);
+        $uninstall = rcube_utils::get_input_string('_iconizer_uninstall', rcube_utils::INPUT_GPC);
+        $pack      = in_array($install, IconPacks::prefixes(), true) ? $install
+            : (in_array($uninstall, IconPacks::prefixes(), true) ? $uninstall : '');
+
+        if ($pack === '') {
+            http_response_code(400);
+            exit;
+        }
+
+        if ($install === $pack) {
+            $result = $this->sprites()->install($pack);
+            $ok     = (bool) $result['ok'];
+            $line   = $ok
+                ? "iconizer: pack '{$pack}' installed ({$result['count']} icons)."
+                : "iconizer: install of '{$pack}' failed: {$result['error']}";
+        } else {
+            $this->sprites()->uninstall($pack);
+            $ok   = true;
+            $line = "iconizer: pack '{$pack}' removed.";
+        }
+
+        http_response_code($ok ? 200 : 502);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo $line . "\n";
+        exit;
+    }
+
+    /**
+     * Preferences section entry (ADR 0004): "Icon packs" under User interface.
+     * 'current' is false on the sections list, true when this section renders.
+     */
+    public function preferences_sections_list($p)
+    {
+        $p['list']['iconizer'] = ['id' => 'iconizer', 'section' => 'Icon packs'];
+
+        return $p;
+    }
+
+    /**
+     * Fill "Icon packs": one row per allowlisted pack, install or remove button.
+     * Each button is a standalone mini-form posting to plugin.iconizer-pack so a
+     * click never submits the core prefs form.
+     */
+    public function preferences_list($p)
+    {
+        if ($p['section'] !== 'iconizer') {
+            return $p;
+        }
+
+        if (!$p['current']) {
+            $p['blocks']['main']['content'] = true;
+
+            return $p;
+        }
+
+        $cache = $this->sprites();
+        $rows  = '';
+        foreach (IconPacks::PACKS as $prefix => $label) {
+            $installed = $cache->isInstalled($prefix);
+            $count     = $installed ? $cache->count($prefix) : 0;
+
+            $status = $installed
+                ? '<span class="iconizer-pack-ok">Installed (' . $count . ' icons)</span>'
+                : '<span class="iconizer-pack-off">Not installed</span>';
+
+            $action = $installed ? '_iconizer_uninstall' : '_iconizer_install';
+            $button = $installed
+                ? '<button type="submit" class="btn btn-sm">Remove</button>'
+                : '<button type="submit" class="btn btn-sm btn-primary">Install</button>';
+
+            $form = '<form method="post" action="'
+                . rcube::get_instance()->url(['action' => 'plugin.iconizer-pack', $action => $prefix], true)
+                . '" class="iconizer-pack-form">'
+                . rcube::get_instance()->output->request_form(['task' => 'settings', 'noclose' => true], '')
+                . $button . '</form>';
+
+            $rows .= '<tr><td>' . rcube::Q($label) . '</td><td>' . $status . '</td><td>' . $form . '</td></tr>';
+        }
+
+        $p['blocks']['main']['content'] =
+            '<table class="iconizer-packs-table"><tbody>' . $rows . '</tbody></table>'
+            . '<p class="iconizer-pack-note">Icons render from local sprites once a pack is '
+            . 'installed — no calls to api.iconify.design at runtime (ADR 0004).</p>';
+
+        return $p;
+    }
+
+    /** @var IconSpriteCache|null local sprite mirror, built lazily per request */
+    private $sprites = null;
+
+    /** The plugin's local sprite mirror (ADR 0004). */
+    private function sprites(): IconSpriteCache
+    {
+        if ($this->sprites === null) {
+            $this->sprites = new IconSpriteCache(__DIR__ . '/sprites', __DIR__ . '/data');
+        }
+
+        return $this->sprites;
     }
 
     /** Bind the store/resolver to the authenticated user (id exists post-login). */
@@ -223,6 +355,10 @@ class roundcube_iconizer extends rcube_plugin
         $rcmail = rcmail::get_instance();
         if ($rcmail->output && $rcmail->output->type === 'html') {
             $rcmail->output->set_env('iconizer_icons', $this->icon_map());
+            // Packs with a local sprite + the sprite URL base: the picker offers only
+            // installed packs and the painter builds <use href> from these (ADR 0004).
+            $rcmail->output->set_env('iconizer_installed', $this->sprites()->installed());
+            $rcmail->output->set_env('iconizer_sprite_base', $this->urlbase . 'sprites/');
             $this->map_published = true;
         }
 
@@ -235,6 +371,8 @@ class roundcube_iconizer extends rcube_plugin
         $rcmail = rcmail::get_instance();
         if ($rcmail->output) {
             $rcmail->output->set_env('iconizer_icons', $this->icon_map());
+            $rcmail->output->set_env('iconizer_installed', $this->sprites()->installed());
+            $rcmail->output->set_env('iconizer_sprite_base', $this->urlbase . 'sprites/');
         }
     }
 
@@ -450,7 +588,13 @@ class roundcube_iconizer extends rcube_plugin
         if ($this->pending_icon === '') {
             $this->store->forget($this->pending_folder); // remove the icon -> standard glyph
         } else {
-            $this->store->put($this->pending_folder, $this->pending_icon, $this->fetchBody($this->pending_icon));
+            // ADR 0004: the sprite paints installed packs, so no inline fetch is
+            // needed. Keep the per-icon cache ONLY when the pack has no sprite, so a
+            // ref whose pack is uninstalled still renders via the inline fallback.
+            $parsed = IconResolver::parse($this->pending_icon);
+            $pack   = $parsed ? $parsed[0] : '';
+            $cached = $this->sprites()->isInstalled($pack) ? null : $this->fetchBody($this->pending_icon);
+            $this->store->put($this->pending_folder, $this->pending_icon, $cached);
         }
 
         // Paint target: on a rename the parent still carries the OLD row
@@ -586,6 +730,15 @@ class roundcube_iconizer extends rcube_plugin
 
         if ($folder === '' || !$this->resolver->isAllowed($ref)) {
             http_response_code(400);
+            exit;
+        }
+
+        // ADR 0004: installed packs paint from the local sprite, so no inline fetch.
+        // Cache per-icon only when the pack has no sprite (inline fallback path).
+        $parsed = IconResolver::parse($ref);
+        $pack   = $parsed ? $parsed[0] : '';
+        if ($this->sprites()->isInstalled($pack)) {
+            http_response_code(404); // the sprite serves this ref; no inline endpoint
             exit;
         }
 

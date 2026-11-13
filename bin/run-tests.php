@@ -185,5 +185,56 @@ check(
 );
 unlink($tmp);
 
+echo "\nIconSpriteCache (ADR 0004)\n";
+
+require __DIR__ . '/../src/IconSpriteCache.php';
+use Armanoide\Iconizer\IconSpriteCache;
+
+$dir = sys_get_temp_dir() . '/iconizer-sprite-' . getmypid();
+$stub = json_encode([
+    'prefix' => 'bi',
+    'icons'  => [
+        'folder' => ['body' => '<path fill="currentColor" d="M0 0h24v24H0z"/>', 'width' => 24, 'height' => 24],
+        'inbox'  => ['body' => '<rect fill="currentColor" width="24" height="24"/>'],
+        'empty'  => ['body' => ''], // skipped: no body
+    ],
+]);
+
+$cache = new IconSpriteCache($dir . '/sprites', $dir . '/data', function ($url) use ($stub) {
+    return str_contains($url, '@iconify-json/bi@latest/icons.json') ? $stub : null;
+});
+
+$r = $cache->install('bi');
+check('install reports ok', $r['ok'] === true);
+check('install counts only icons with a body', $r['count'] === 2);
+check('sprite file written', is_file($cache->spritePath('bi')));
+check('data file written', is_file($cache->dataPath('bi')));
+
+$sprite = (string) file_get_contents($cache->spritePath('bi'));
+check('sprite is well-formed XML', simplexml_load_string($sprite) !== false);
+check('sprite has a symbol per icon', substr_count($sprite, '<symbol') === 2);
+check('sprite keeps currentColor', str_contains($sprite, 'currentColor'));
+check('symbol id matches icon name', str_contains($sprite, 'id="folder"'));
+check('default viewBox when size absent', str_contains($sprite, 'viewBox="0 0 24 24"'));
+
+$meta = $cache->meta('bi');
+check('data json lists names', $meta['names'] === ['folder', 'inbox']);
+check('installed() reports the pack', $cache->isInstalled('bi') && in_array('bi', $cache->installed(), true));
+check('count() reflects installed icons', $cache->count('bi') === 2);
+
+$bad = $cache->install('lucide');
+check('install rejects a non-allowlisted pack', $bad['ok'] === false && is_dir($dir) && !is_file($cache->spritePath('lucide')));
+
+$nofetch = new IconSpriteCache($dir . '/sprites', $dir . '/data', function () { return null; });
+$failed = $nofetch->install('bi');
+check('install fails cleanly when download fails', $failed['ok'] === false && $failed['error'] === 'download failed');
+
+$cache->uninstall('bi');
+check('uninstall removes the sprite', !is_file($cache->spritePath('bi')));
+check('uninstall removes the data file', !is_file($cache->dataPath('bi')));
+check('uninstalled pack not installed', !$cache->isInstalled('bi'));
+
+exec('rm -rf ' . escapeshellarg($dir));
+
 echo "\n{$pass} passed, {$fail} failed\n";
 exit($fail === 0 ? 0 : 1);

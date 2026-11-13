@@ -19,6 +19,22 @@
         }
 
         var ICONS = env.iconizer_icons;
+        // Packs with a local sprite + the sprite URL base (ADR 0004). When a ref's
+        // pack is installed, the row paints from <use href="sprites/<pack>.svg#name">
+        // — same-origin, currentColor, no CDN. entry.svg (inline cache) is the fallback.
+        var INSTALLED = env.iconizer_installed || [];
+        var SPRITE_BASE = env.iconizer_sprite_base || '';
+
+        function hasSprite(ref) {
+            var pack = (ref || '').split(':')[0];
+            return SPRITE_BASE && INSTALLED.indexOf(pack) >= 0;
+        }
+
+        function spriteUse(ref) {
+            var parts = (ref || '').split(':');
+            return '<svg class="iconizer-icon" width="16" height="16" aria-hidden="true">'
+                + '<use href="' + SPRITE_BASE + parts[0] + '.svg#' + parts.slice(1).join(':') + '"></use></svg>';
+        }
 
         function entryFor(li) {
             if (!li || !li.getAttribute) return null;
@@ -39,24 +55,17 @@
             var holder = self.document.createElement('span');
             holder.className = 'iconizer-holder';
 
-            if (entry.svg) {
-                holder.innerHTML = entry.svg;
+            // Local sprite first (ADR 0004): no CDN, currentColor themes for free.
+            if (hasSprite(entry.ref)) {
+                holder.innerHTML = spriteUse(entry.ref);
                 return holder;
             }
 
-            if (self.Iconify) {
-                var node = self.Iconify.renderSVG ? self.Iconify.renderSVG(entry.ref, { height: 16, width: 16 }) : null;
-                if (node) {
-                    node.classList.add('iconizer-icon');
-                    holder.appendChild(node);
-                } else {
-                    var ph = self.document.createElement('span');
-                    ph.className = 'iconify';
-                    ph.setAttribute('data-icon', entry.ref);
-                    holder.appendChild(ph);
-                    if (self.Iconify.scan) self.Iconify.scan(holder);
-                }
+            if (entry.svg) {
+                holder.innerHTML = entry.svg;
             }
+            // No sprite, no inline cache: leave the holder empty. ADR 0004 forbids a
+            // runtime Iconify call; the Elastic glyph stays until the pack is installed.
             return holder;
         }
 
@@ -67,11 +76,11 @@
             var anchor = li.querySelector(':scope > a');
             if (!anchor) return;
 
-            // The ref is in prefs but its SVG is not cached yet (fresh save): render
-            // the live Iconify glyph instead of leaving the row without an icon.
-            var holder = entry.svg ? entry.svg : '';
-            if (holder) {
-                anchor.insertAdjacentHTML('afterbegin', '<span class="iconizer-holder">' + holder + '</span>');
+            // Fresh save: the sprite (or inline cache) paints immediately. With neither,
+            // leave the row for the Iconify fallback rather than shipping an empty holder.
+            var markup = hasSprite(entry.ref) ? spriteUse(entry.ref) : (entry.svg || '');
+            if (markup) {
+                anchor.insertAdjacentHTML('afterbegin', '<span class="iconizer-holder">' + markup + '</span>');
             } else if (!anchor.querySelector(':scope > .iconizer-holder')) {
                 anchor.insertBefore(makeIconNode(entry), anchor.firstChild);
             }

@@ -3,20 +3,31 @@
  *
  * Inlined by the plugin into the folder-edit page because the core drops
  * registered script files when it re-renders that form after a failed save.
- * Vanilla JS, no build step (ADR 0001). Keyword search runs against the Iconify
- * API, scoped to the plugin's allowed packs (ADR 0002) — a pack outside the
- * allowlist can never appear, and the server re-checks on save anyway.
+ * Vanilla JS, no build step (ADR 0001).
+ *
+ * ADR 0004: search runs against the LOCAL sprite mirror — data/<pack>.json is
+ * fetched once per installed pack and filtered client-side; icons render from
+ * <svg><use href="sprites/<pack>.svg#<name>">. The picker offers only installed
+ * packs, so no request ever leaves the browser to api.iconify.design. A pack
+ * outside the allowlist can never appear, and the server re-checks on save anyway.
  */
 (function () {
     'use strict';
 
-    var API = 'https://api.iconify.design';
     // ADR 0002 — mirrors IconResolver::ALLOWED_PACKS / IconPacks::PACKS.
     var PACKS = { bi: 'Bootstrap Icons', 'fa-solid': 'Font Awesome Solid', 'fa-regular': 'Font Awesome Regular', 'fa-brands': 'Font Awesome Brands', ic: 'Google Material Icons', mdi: 'Material Design Icons', 'simple-icons': 'Simple Icons' };
 
+    // Sprite base + installed packs, published by the plugin (ADR 0004).
+    var env = (window.rcmail && window.rcmail.env) || {};
+    var SPRITE_BASE = env.iconizer_sprite_base || 'plugins/roundcube_iconizer/sprites/';
+    var INSTALLED = env.iconizer_installed || [];
+
+    // name lists per pack, fetched once from data/<pack>.json and cached here.
+    var NAMES = {};
+
     function esc(s) {
         return String(s).replace(/[&<>"']/g, function (c) {
-            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39' }[c];
         });
     }
 
@@ -37,6 +48,22 @@
         return fallback;
     }
 
+    function spriteUse(ref, size) {
+        var parts = (ref || '').split(':');
+        return '<svg class="iconizer-icon" width="' + size + '" height="' + size + '" aria-hidden="true">'
+            + '<use href="' + SPRITE_BASE + parts[0] + '.svg#' + parts.slice(1).join(':') + '"></use></svg>';
+    }
+
+    // Fetch a pack's searchable name list once; resolve to [] when unavailable.
+    function namesOf(p) {
+        if (NAMES[p]) return Promise.resolve(NAMES[p]);
+        var url = SPRITE_BASE.replace(/sprites\/$/, '') + 'data/' + p + '.json';
+        return fetch(url)
+            .then(function (r) { return r.ok ? r.json() : { names: [] }; })
+            .then(function (d) { NAMES[p] = d.names || []; return NAMES[p]; })
+            .catch(function () { return []; });
+    }
+
     function picker() {
         // id="_icon" so the core's <label for="_icon">Icon</label> resolves to it.
         var button = document.getElementById('_icon');
@@ -47,6 +74,9 @@
 
         var pack = button.getAttribute('data-pack') || '';
         var selected = hidden.value || '';
+
+        // Only installed packs are selectable (ADR 0004): no sprite, no icon.
+        var available = INSTALLED.filter(function (p) { return PACKS[p]; });
 
         // One overlay for the whole document; opened on every button click.
         var overlay = document.getElementById('iconizer-overlay');
@@ -71,12 +101,12 @@
             document.body.appendChild(overlay);
 
             select = overlay.querySelector('.iconizer-pack');
-            // "All packs" first and the default: multi-pack search is the normal case.
+            // "All installed" first and the default: multi-pack search is the norm.
             var all = document.createElement('option');
             all.value = '';
             all.textContent = label('iconizerall', 'All packs');
             select.appendChild(all);
-            Object.keys(PACKS).forEach(function (p) {
+            available.forEach(function (p) {
                 var opt = document.createElement('option');
                 opt.value = p;
                 opt.textContent = PACKS[p];
@@ -86,7 +116,7 @@
             select.addEventListener('change', function () { load(select.value, ''); });
             overlay.querySelector('.iconizer-search').addEventListener('input', debounce(function (e) {
                 load(select.value, e.target.value.trim());
-            }, 300));
+            }, 200));
             overlay.querySelector('.iconizer-grid').addEventListener('click', function (e) {
                 var cell = e.target.closest('.iconizer-cell');
                 if (!cell) return;
@@ -107,7 +137,7 @@
         function commit() {
             hidden.value = selected;
             var svgSpan = document.getElementById('iconizer-form-svg');
-            if (svgSpan) svgSpan.textContent = ''; // stale: the server re-resolves on save
+            if (svgSpan) svgSpan.textContent = ''; // sprite paints it; inline cache unused
             button.setAttribute('title', selected || label('iconizerselect', 'Choose an icon'));
             var ref = button.querySelector('.iconizer-ref');
             if (ref && ref.parentNode === button) {
@@ -123,68 +153,61 @@
             });
             var preview = overlay.querySelector('.iconizer-preview');
             preview.innerHTML = selected
-                ? '<img src="' + API + '/' + selected.replace(':', '/') + '.svg" alt=""> <code>' + esc(selected) + '</code>'
+                ? spriteUse(selected, 24) + ' <code>' + esc(selected) + '</code>'
                 : '<span class="iconizer-placeholder">' + esc(label('iconizernone', 'None')) + '</span>';
         }
 
         function paintButton() {
-            var old = button.querySelector('img');
+            var old = button.querySelector('.iconizer-form-svg svg, img');
             if (old) old.remove();
             if (!selected) {
                 return;
             }
 
-            var img = document.createElement('img');
-            img.src = API + '/' + selected.replace(':', '/') + '.svg';
-            img.alt = '';
-            img.width = 16;
-            img.height = 16;
-            // The core re-renders the form after save: .iconizer-ref may no longer be
-            // a child of this button (orphaned or gone) -> insertBefore throws. Insert
-            // before ref only when it really is a child, otherwise append.
+            var span = document.createElement('span');
+            span.innerHTML = spriteUse(selected, 16);
+            var svg = span.firstChild;
             var ref = button.querySelector('.iconizer-ref');
             if (ref && ref.parentNode === button) {
-                button.insertBefore(img, ref);
+                button.insertBefore(svg, ref);
             } else {
-                button.appendChild(img);
+                button.appendChild(svg);
             }
         }
 
-        function searchPack(p, term) {
-            // One request per pack: Iconify caps results at 64 per call and takes a
-            // single prefix= — a global search filtered afterwards never surfaces the
-            // allowlisted packs (the "pro" bug).
-            return fetch(API + '/search?query=' + encodeURIComponent(term) + '&prefix=' + encodeURIComponent(p) + '&limit=96')
-                .then(function (r) { return r.json(); })
-                .then(function (data) { return data.icons || []; })
-                .catch(function () { return []; });
+        // Filter a pack's cached names by substring (local, no network).
+        function filterPack(p, term) {
+            return namesOf(p).then(function (names) {
+                var t = term.toLowerCase();
+                return names.filter(function (n) { return n.indexOf(t) >= 0; })
+                    .slice(0, 96).map(function (n) { return p + ':' + n; });
+            });
         }
 
         function load(p, term) {
             var grid = overlay.querySelector('.iconizer-grid');
             grid.innerHTML = '';
-            term = (term || '').trim();
 
-            // Empty pack ("All") -> every allowlisted pack, otherwise just the chosen one.
-            var targets = p ? [p] : Object.keys(PACKS);
+            if (!available.length) {
+                grid.innerHTML = '<span class="iconizer-placeholder">No packs installed — install one in Preferences › Icon packs.</span>';
+                return;
+            }
+
+            term = (term || '').trim();
+            var targets = p ? [p] : available;
 
             if (!term) {
-                // No search term: "All" would list thousands of icons, so it stays empty
-                // and prompts for a query; samples only load for a single chosen pack.
+                // No term: "All" would list thousands, so prompt; a chosen pack previews.
                 if (!p) {
                     grid.innerHTML = '<span class="iconizer-placeholder">' + esc(label('iconizertype', 'Type to search…')) + '</span>';
                     return;
                 }
-                fetch(API + '/collections?request=' + encodeURIComponent(JSON.stringify({ prefixes: [p] })))
-                    .then(function (r) { return r.json(); })
-                    .then(function (data) { show(grid, ((data[p] && data[p].samples) || []).map(function (n) { return p + ':' + n; })); })
-                    .catch(function () { grid.textContent = 'Iconify API unreachable'; });
+                namesOf(p).then(function (names) { show(grid, names.slice(0, 120).map(function (n) { return p + ':' + n; })); });
                 return;
             }
 
-            Promise.all(targets.map(function (t) { return searchPack(t, term); }))
-                .then(function (chunks) { show(grid, flatten(chunks)); })
-                .catch(function () { grid.textContent = 'Iconify API unreachable'; });
+            Promise.all(targets.map(function (t) { return filterPack(t, term); }))
+                .then(function (chunks) { show(grid, flatten(chunks)); });
         }
 
         function flatten(chunks) {
@@ -205,13 +228,8 @@
                 cell.className = 'iconizer-cell' + (ref === selected ? ' selected' : '');
                 cell.setAttribute('data-ref', ref);
                 cell.title = ref;
-                // <img> only: one request per icon, browser-cached. The old inline-SVG
-                // fetch doubled every request and tripped Iconify's 429 rate limit.
-                var img = document.createElement('img');
-                img.src = API + '/' + ref.replace(':', '/') + '.svg';
-                img.alt = ref;
-                img.loading = 'lazy';
-                cell.appendChild(img);
+                // Local sprite <use>: same-origin, currentColor, zero CDN (ADR 0004).
+                cell.innerHTML = spriteUse(ref, 24);
                 grid.appendChild(cell);
             });
             if (!refs.length) {
