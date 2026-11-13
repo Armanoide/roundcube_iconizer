@@ -140,6 +140,16 @@ class roundcube_iconizer extends rcube_plugin
     /** @var PreferencesUI|null built lazily per request */
     private $prefsui = null;
 
+    /** Sprite URL base, routed through the core's static.php asset endpoint. */
+    private function sprite_base(): string
+    {
+        $out = rcmail::get_instance()->output;
+
+        return $out && method_exists($out, 'asset_url')
+            ? $out->asset_url($this->urlbase . 'sprites/')
+            : $this->urlbase . 'sprites/';
+    }
+
     private function prefsUI(): PreferencesUI
     {
         if ($this->prefsui === null) {
@@ -209,7 +219,7 @@ class roundcube_iconizer extends rcube_plugin
             $rcmail->output->set_env('iconizer_icons', $this->icon_map());
             // Installed packs + sprite base drive the picker and <use href> (ADR 0004).
             $rcmail->output->set_env('iconizer_installed', $this->sprites()->installed());
-            $rcmail->output->set_env('iconizer_sprite_base', $this->urlbase . 'sprites/');
+            $rcmail->output->set_env('iconizer_sprite_base', $this->sprite_base());
             $this->map_published = true;
         }
 
@@ -223,7 +233,7 @@ class roundcube_iconizer extends rcube_plugin
         if ($rcmail->output) {
             $rcmail->output->set_env('iconizer_icons', $this->icon_map());
             $rcmail->output->set_env('iconizer_installed', $this->sprites()->installed());
-            $rcmail->output->set_env('iconizer_sprite_base', $this->urlbase . 'sprites/');
+            $rcmail->output->set_env('iconizer_sprite_base', $this->sprite_base());
         }
     }
 
