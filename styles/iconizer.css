@@ -1,0 +1,26 @@
+/* roundcube_iconizer — sidebar icon placement.
+   Colour is always currentColor so the active theme stays in charge (ADR 0003). */
+
+li.iconizer-painted > a::before {
+    /* Neutralise Elastic's FontAwesome glyph: never two icons on one row. */
+    content: none !important;
+}
+
+li.iconizer-painted > a > .iconizer-holder {
+    display: inline-flex;
+    align-items: center;
+    margin-right: .5rem;
+    vertical-align: -.2em;
+}
+
+li.iconizer-painted > a > .iconizer-holder svg,
+li.iconizer-painted > a > .iconizer-holder i.iconify {
+    display: block;
+    color: currentColor;
+}
+
+/* Folder edit form field placeholder */
+.iconizer-placeholder {
+    opacity: .55;
+    font-style: italic;
+}

@@ -1,0 +1,17 @@
+{
+  "name": "armanoide/roundcube-iconizer",
+  "type": "roundcube-plugin",
+  "description": "Custom per-folder icons for the Roundcube Elastic sidebar (Obsidian-style), powered by Iconify with a bundled Tabler fallback",
+  "keywords": ["roundcube", "plugin", "icons", "folders", "iconify", "tabler", "lucide"],
+  "license": "MIT",
+  "authors": [{ "name": "Armanoide", "homepage": "https://github.com/Armanoide" }],
+  "require": {
+    "php": ">=8.1"
+  },
+  "autoload": {
+    "psr-4": { "Armanoide\\Iconizer\\": "src/" }
+  },
+  "scripts": {
+    "test": "php bin/run-tests.php"
+  }
+}
