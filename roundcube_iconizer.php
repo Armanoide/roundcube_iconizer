@@ -138,8 +138,8 @@ class roundcube_iconizer extends rcube_plugin
     /**
      * preferences_save fires on every Settings section save with a prefs array
      * that never carries our key, and rcube_user::save_prefs() merges — so the
-     * map survives untouched. This guard makes that explicit and repairs any
-     * third-party attempt to blank it.
+     * map survives untouched. The guard re-injects it anyway: one write per
+     * section save, but no window where another plugin could blank the map.
      */
     public function preferences_save($args)
     {
