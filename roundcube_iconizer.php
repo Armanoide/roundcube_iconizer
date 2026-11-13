@@ -195,6 +195,19 @@ class roundcube_iconizer extends rcube_plugin
         if ($js !== '' && $rcmail->output && method_exists($rcmail->output, 'add_script')) {
             $rcmail->output->add_script($js);
         }
+
+        // The sidebar lives in the main window (mail task). On a classic-POST save
+        // inside the settings iframe, write() drops script_files there, so the main
+        // window's painter is never (re)armed. Mirror the painter into the parent
+        // window from this inline script so iconizer_paint and its observers exist
+        // where the subscription-table actually is. Same-origin only; a parse failure
+        // in the parent just leaves the existing painter untouched.
+        $js = json_encode($js);
+        $mirror = "<script>(function(){try{var p=window.parent;if(p&&p!==window&&p.document&&!p.__iconizerArmed){"
+            . "var d=p.document.createElement('script');d.textContent={$js};d.id='iconizer-painter';p.document.body.appendChild(d);p.__iconizerArmed=1;}}catch(e){}})();</script>";
+        if ($rcmail->output && method_exists($rcmail->output, 'add_script')) {
+            $rcmail->output->add_script(str_replace('{$js}', $js, $mirror));
+        }
     }
 
     /** Publish the folder→icon map to the client, keyed by raw folder name. */
@@ -299,8 +312,10 @@ class roundcube_iconizer extends rcube_plugin
         $current = (string) ($this->store->get($folder) ?? '');
         $svg     = (string) ($this->store->svg($folder) ?? '');
 
-        // Pack shown by default on click: the current choice's pack, else "All".
-        $pack = IconResolver::parse($current)[0] ?? '';
+        // Pack preselected on click: the current choice's pack, otherwise "All"
+        // (empty value). An empty data-pack must yield "", not the first pack.
+        $parsed = IconResolver::parse($current);
+        $pack   = $parsed ? $parsed[0] : '';
 
         $preview = $svg !== ''
             ? $svg

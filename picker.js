@@ -204,21 +204,14 @@
                 cell.className = 'iconizer-cell' + (ref === selected ? ' selected' : '');
                 cell.setAttribute('data-ref', ref);
                 cell.title = ref;
-                // Inline SVG (fetch) instead of <img>: a currentColor SVG loaded via
-                // <img> renders black on a dark background (invisible). Inline it
-                // inherits currentColor and follows the theme. <img> is the fallback.
+                // <img> only: one request per icon, browser-cached. The old inline-SVG
+                // fetch doubled every request and tripped Iconify's 429 rate limit.
                 var img = document.createElement('img');
                 img.src = API + '/' + ref.replace(':', '/') + '.svg';
                 img.alt = ref;
                 img.loading = 'lazy';
                 cell.appendChild(img);
                 grid.appendChild(cell);
-                fetch(API + '/' + ref.replace(':', '/') + '.svg')
-                    .then(function (r) { return r.ok ? r.text() : ''; })
-                    .then(function (svg) {
-                        if (svg.indexOf('<svg') === 0) cell.innerHTML = svg;
-                    })
-                    .catch(function () {});
             });
             if (!refs.length) {
                 grid.innerHTML = '<span class="iconizer-placeholder">—</span>';
