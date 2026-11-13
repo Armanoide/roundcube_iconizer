@@ -7,20 +7,10 @@ namespace Armanoide\Iconizer;
 /**
  * Local sprite mirror of the allowlisted icon packs (ADR 0004).
  *
- * A pack is downloaded ONCE, server-side, from jsDelivr's npm CDN as the
- * full @iconify-json/<pack> dataset (icons.json: {prefix, icons:{name:{body,
- * width?,height?}}}) and written to:
- *   sprites/<pack>.svg  — one <symbol id="<name>"> per icon, body verbatim
- *   data/<pack>.json    — {prefix, names:[...]} searchable list + version
- *
- * After install the browser never calls api.iconify.design again: icons render
- * via <svg><use href="sprites/<pack>.svg#<name>"> (same-origin, currentColor)
- * and the picker searches data/<pack>.json. This kills the runtime dependency
- * that caused 429 rate-limit failures behind webmail.armanoide.net.
- *
- * Downloads run server-side (PHP curl, not the browser) — one request per
- * pack, not subject to Iconify's per-browser rate limit. The fetcher is
- * injectable so the unit tests never hit the network.
+ * A pack is downloaded once, server-side, from jsDelivr and written to
+ * sprites/<pack>.svg (<symbol> per icon) + data/<pack>.json (searchable names).
+ * After install the browser never calls api.iconify.design again. The fetcher is
+ * injectable so tests never hit the network.
  */
 final class IconSpriteCache
 {
@@ -96,13 +86,7 @@ final class IconSpriteCache
         ];
     }
 
-    /**
-     * Download a pack's full dataset and build its sprite + searchable list.
-     * One network call per pack (ADR 0004). Atomic: nothing is written before
-     * the dataset parses, so a failed install never clobbers good files.
-     *
-     * @return array{ok:bool,count:int,error:?string}
-     */
+    /** Download a pack's dataset, build its sprite + name list. Atomic: nothing is written before the data parses. */
     public function install(string $pack): array
     {
         if (!in_array($pack, IconPacks::prefixes(), true)) {
@@ -164,12 +148,7 @@ final class IconSpriteCache
         }
     }
 
-    /**
-     * Fetch a URL with PHP curl; null on any failure. Full packs reach ~5MB
-     * (fa-solid), so the timeout is generous and gzip is requested to cut the
-     * transfer ~4x behind the reverse proxy. A truncated body fails json_decode
-     * upstream, so a short read is never mistaken for success.
-     */
+    /** Fetch a URL with curl; null on failure. Generous timeout + gzip: full packs reach ~5MB. */
     public function curl(string $url): ?string
     {
         $ch = curl_init($url);
