@@ -2,72 +2,110 @@
  * roundcube_iconizer — sidebar painter.
  *
  * Replaces Elastic's folder glyph with the user's icon on rows that have a
- * mapping. Runs after every sidebar render so refreshes keep icons in place.
+ * mapping. Rows are keyed by the anchor's rel attribute — the raw IMAP folder
+ * name, published as rcmail.env.iconizer_icons. No id decoding: the core's
+ * html_identifier is not reimplemented here (ADR 0003).
  */
 (function () {
     'use strict';
 
-    var env = window.rcmail && rcmail.env ? rcmail.env : null;
-    if (!env || !env.iconizer_icons) {
-        return;
-    }
-
-    var ICONS = env.iconizer_icons;
-
-    function folderOf(row) {
-        if (!row || !row.getAttribute) return null;
-        return row.getAttribute('data-folder') || row.id || null;
-    }
-
-    function paintRow(li) {
-        var folder = folderOf(li);
-        if (!folder || !ICONS[folder]) return;
-
-        var entry = ICONS[folder];
-        var anchor = li.querySelector(':scope > a');
-        if (!anchor) return;
-
-        var existing = anchor.querySelector('.iconizer-icon');
-        if (existing) existing.remove();
-
-        var holder = document.createElement('span');
-        holder.className = 'iconizer-holder';
-
-        if (entry.svg) {
-            holder.innerHTML = entry.svg;
-        } else if (window.Iconify && Iconify.renderSVG) {
-            var parsed = entry.ref.split(':');
-            var node = Iconify.renderSVG(entry.ref, { height: 16, width: 16 });
-            if (node) {
-                node.classList.add('iconizer-icon');
-                holder.appendChild(node);
-            } else {
-                // Not cached and not yet rendered: fetch once, paint on success.
-                holder.innerHTML = '<span class="iconify" data-icon="' + entry.ref + '" data-inline="false"></span>';
-                Iconify.scan(holder);
-            }
-        } else {
-            holder.innerHTML = '<span class="iconify" data-icon="' + entry.ref + '"></span>';
-            if (window.Iconify && Iconify.scan) Iconify.scan(holder);
+    function painter() {
+        var env = window.rcmail && rcmail.env ? rcmail.env : null;
+        if (!env || !env.iconizer_icons) {
+            return;
         }
 
-        anchor.insertBefore(holder, anchor.firstChild);
-        li.classList.add('iconizer-painted');
-    }
+        var ICONS = env.iconizer_icons;
 
-    function paintAll() {
-        document.querySelectorAll('.folderlist li.mailbox').forEach(paintRow);
-    }
+        function entryFor(li) {
+            if (!li || !li.getAttribute) return null;
+            var anchor = li.querySelector(':scope > a');
+            if (anchor && anchor.getAttribute('rel')) {
+                var ref = decodeURIComponent(anchor.getAttribute('rel'));
+                if (ICONS[ref]) return ICONS[ref];
+            }
+            // Fallback: decode the row id with the core's own decoder.
+            if (li.id && rcmail.folder_id2name) {
+                var name = rcmail.folder_id2name(li.id);
+                if (name && ICONS[name]) return ICONS[name];
+            }
+            return null;
+        }
 
-    if (window.rcmail && rcmail.addEventListener) {
-        rcmail.addEventListener('response after script', paintAll);
-        rcmail.addEventListener('folderUpdated', paintAll);
-        rcmail.addEventListener('imap_folders_changed', paintAll);
+        function makeIconNode(entry) {
+            var holder = document.createElement('span');
+            holder.className = 'iconizer-holder';
+
+            if (entry.svg) {
+                holder.innerHTML = entry.svg;
+                return holder;
+            }
+
+            if (window.Iconify) {
+                var node = Iconify.renderSVG ? Iconify.renderSVG(entry.ref, { height: 16, width: 16 }) : null;
+                if (node) {
+                    node.classList.add('iconizer-icon');
+                    holder.appendChild(node);
+                } else {
+                    var ph = document.createElement('span');
+                    ph.className = 'iconify';
+                    ph.setAttribute('data-icon', entry.ref);
+                    holder.appendChild(ph);
+                    if (Iconify.scan) Iconify.scan(holder);
+                }
+            }
+            return holder;
+        }
+
+        function paintRow(li) {
+            var entry = entryFor(li);
+            if (!entry) return;
+
+            var anchor = li.querySelector(':scope > a');
+            if (!anchor) return;
+
+            var old = anchor.querySelector(':scope > .iconizer-holder');
+            if (old) old.remove();
+
+            anchor.insertBefore(makeIconNode(entry), anchor.firstChild);
+            li.classList.add('iconizer-painted');
+        }
+
+        function paintAll() {
+            document.querySelectorAll('.folderlist li.mailbox').forEach(paintRow);
+        }
+
+        if (window.rcmail && rcmail.addEventListener) {
+            rcmail.addEventListener('response before script', paintAll);
+            rcmail.addEventListener('response after script', paintAll);
+            rcmail.addEventListener('folderUpdated', paintAll);
+            rcmail.addEventListener('imap_folders_changed', paintAll);
+        }
+
+        // treelist rebuilds rows on search/expand/AJAX; repaint on DOM changes.
+        // The observer disconnects while mutating so our own edits never retrigger it.
+        if (window.MutationObserver) {
+            var list = document.querySelector('.folderlist');
+            if (list) {
+                var observer = new MutationObserver(function () {
+                    observer.disconnect();
+                    paintAll();
+                    observer.observe(list, { childList: true, subtree: true });
+                });
+                observer.observe(list, { childList: true, subtree: true });
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', paintAll);
+        } else {
+            paintAll();
+        }
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', paintAll);
+        document.addEventListener('DOMContentLoaded', painter);
     } else {
-        paintAll();
+        painter();
     }
 })();
