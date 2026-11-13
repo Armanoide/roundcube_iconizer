@@ -259,25 +259,20 @@ class roundcube_iconizer extends rcube_plugin
             return $args;
         }
 
-        // This inline hint runs last, after the core's replace_folder_row/add_folder_row:
-        // it refreshes the parent env and repaints the row. If iconizer.js never ran in
-        // the parent (deep-link into edit-folder), the fallback paints after a tick that
-        // lets add_folder_row place the new row first.
-        $script = "<script>window.rcmail&&(rcmail.env.iconizer_icons={$json});";
+        // The iframe save response carries no rcmail of its own (the core empties
+        // registered scripts), so an iframe-local guard like `window.rcmail&&` silently
+        // skips the update. Write the fresh map into the parent env synchronously —
+        // before any DOMContentLoaded painter runs — and repaint after a tick so the
+        // core's replace_folder_row/add_folder_row lands first. The parent always has
+        // iconizer_paint: iconizer.js is inline on every page.
+        $script = "<script>(function(){var P=window.parent;"
+            . "var r=(P&&P!==window&&P.rcmail)?P.rcmail:window.rcmail;"
+            . "if(r&&r.env){r.env.iconizer_icons={$json};}})();";
         if ($hint) {
-            $folder = json_encode($this->pending_paint_folder);
-            $svg    = json_encode((string) $this->pending_paint_svg);
-            $script .= "window.setTimeout(function(){var r=window.rcmail;if(!r)return;"
-                . "var f=" . $folder . ",svg=" . $svg . ";"
-                . "if(svg)r.env.iconizer_icons[f]={ref:(r.env.iconizer_icons[f]||{}).ref||'',svg:svg};"
-                . "else delete r.env.iconizer_icons[f];"
-                . "if(r.iconizer_paint){r.iconizer_paint(f);return;}"
-                . "var p=window.parent;if(!p||p===window||!p.document)return;"
-                . "var li=p.document.getElementById('rcmli'+r.html_identifier_encode(f));if(!li)return;"
-                . "var a=li.querySelector(':scope > a');if(!a)return;"
-                . "var o=a.querySelector(':scope > .iconizer-holder');if(o)o.remove();"
-                . "if(svg){a.insertAdjacentHTML('afterbegin','<span class=\"iconizer-holder\">'+svg+'</span>');li.classList.add('iconizer-painted');}"
-                . "else li.classList.remove('iconizer-painted');},0);";
+            $folder = json_encode((string) $this->pending_paint_folder);
+            $script .= "window.setTimeout(function(){var P=window.parent;"
+                . "var r=(P&&P!==window&&P.rcmail)?P.rcmail:window.rcmail;"
+                . "if(r&&r.iconizer_paint){r.iconizer_paint({$folder});}},0);";
         }
         $script .= "</script>";
 
