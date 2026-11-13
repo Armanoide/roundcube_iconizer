@@ -71,6 +71,34 @@
             li.classList.add('iconizer-painted');
         }
 
+        // Exposé comme rcmail.replace_folder_row (app.js:8064) : le POST classique
+        // save-folder émet cette commande vers le frame parent (iframe response,
+        // rcmail_output_html.php:843-853) pour repeindre la ligne après save.
+        rcmail.iconizer_paint = function (folder) {
+            ICONS = (rcmail.env && rcmail.env.iconizer_icons) || ICONS;
+
+            var li = folder ? document.getElementById('rcmli' + rcmail.html_identifier_encode(folder)) : null;
+
+            if (folder && !li) {
+                // Deux cas sans ligne au nom submitted : renommage (le cœur est en
+                // train de remplacer le <li> — son add_folder_row + notre observer
+                // rattrapent la peinture) et suppression de l'icône sur une ligne
+                // déjà repeinte (entryFor échoue, il faut unpaint directement).
+                if (ICONS[folder]) return;
+                document.querySelectorAll('.folderlist li.mailbox.iconizer-painted').forEach(unpaintRow);
+                return;
+            }
+
+            if (li) {
+                // Self-check : une cible sans ligne existante est un no-op, pas un
+                // effacement — le renommage passe par replace_folder_row + observer.
+                if (!ICONS[folder] && !li.classList.contains('iconizer-painted')) return;
+                if (ICONS[folder]) paintRow(li); else unpaintRow(li);
+            } else {
+                paintAll();
+            }
+        };
+
         function unpaintRow(li) {
             // Entrée retirée des prefs (icône supprimée) : le glyphe Elastic revient.
             var anchor = li.querySelector(':scope > a');
