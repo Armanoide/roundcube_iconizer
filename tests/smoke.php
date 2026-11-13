@@ -54,6 +54,9 @@ $logged_in = stripos($after, 'task-mail') !== false || str_contains($after, '"ic
 // 3. Authenticated mail page: the env map must be there, with Administration.
 [$code, $mail] = fetch("{$base}/?_task=mail&_mbox=INBOX", null, $jar);
 
+// 4. Folder edit form (settings): the Icon field with picker button + hidden input.
+[$code, $form] = fetch("{$base}/?_task=settings&action=edit-folder&_mbox=Administration", null, $jar);
+
 $checks = [
     'login page served'          => $code === 200 || $logged_in,
     'request token extracted'    => $token !== '',
@@ -63,6 +66,8 @@ $checks = [
     'painter css loaded'         => str_contains($mail, 'plugins/roundcube_iconizer/styles/iconizer.css'),
     'icon map published'         => str_contains($mail, '"iconizer_icons"'),
     'Administration mapped'      => str_contains($mail, 'Administration') && str_contains($mail, 'tabler:briefcase'),
+    'icon field in folder form'  => str_contains($form, 'id="iconizer-picker-button"') && str_contains($form, '_iconizer_icon'),
+    'picker runtime inlined'     => str_contains($form, 'iconizer-overlay') || str_contains($form, 'iconify.design/search'),
     'js asset 200'              => trim((string) shell_exec("curl -s -o /dev/null -w '%{http_code}' --max-time 10 \"{$base}/static.php/plugins/roundcube_iconizer/iconizer.js\"")) === '200',
     'css asset 200'             => trim((string) shell_exec("curl -s -o /dev/null -w '%{http_code}' --max-time 10 \"{$base}/static.php/plugins/roundcube_iconizer/styles/iconizer.css\"")) === '200',
 ];

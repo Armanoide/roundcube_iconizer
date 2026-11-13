@@ -22,4 +22,10 @@ git clone https://github.com/Armanoide/roundcube_iconizer.git
 php bin/run-tests.php
 ```
 
-Status: card 01 (tracer bullet). See the `Roundcube-Iconizer` kanban board.
+Card 02 (form field + persistence): the Icon field lives in Settings > Folders >
+edit a folder; saving writes `iconizer` into the user's Roundcube preferences
+(`users.preferences`) — no schema, per-user, survives logout and other browsers.
+Renaming migrates the entry (and subfolders), deleting forgets it, an empty pick
+restores Elastic's glyph.
+
+Status: cards 01–02. See the `Roundcube-Iconizer` kanban board.

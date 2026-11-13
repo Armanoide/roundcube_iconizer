@@ -24,3 +24,99 @@ li.iconizer-painted > a > .iconizer-holder i.iconify {
     opacity: .55;
     font-style: italic;
 }
+
+/* Icon field in the folder edit form (card 02) */
+button.iconizer-form-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    background: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    color: inherit;
+    padding: .15rem .35rem;
+}
+
+button.iconizer-form-icon:hover {
+    border-color: currentColor;
+    border-radius: .25rem;
+}
+
+button.iconizer-form-icon .iconizer-ref {
+    font-family: monospace;
+    opacity: .8;
+}
+
+/* Searchable picker overlay (picker.js) */
+#iconizer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(0, 0, 0, .45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#iconizer-overlay[hidden] {
+    display: none;
+}
+
+#iconizer-overlay .iconizer-dialog {
+    background: var(--layout-bg, #fff);
+    color: inherit;
+    border-radius: .5rem;
+    padding: 1rem;
+    width: min(90vw, 32rem);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+
+html.dark-mode #iconizer-overlay .iconizer-dialog {
+    background: #21292c;
+}
+
+#iconizer-overlay .iconizer-head {
+    display: flex;
+    gap: .5rem;
+}
+
+#iconizer-overlay .iconizer-preview {
+    min-height: 2rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+#iconizer-overlay .iconizer-grid {
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(2.5rem, 1fr));
+    gap: .25rem;
+}
+
+#iconizer-overlay .iconizer-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.5rem;
+    border: 1px solid transparent;
+    border-radius: .25rem;
+    background: none;
+    cursor: pointer;
+}
+
+#iconizer-overlay .iconizer-cell:hover {
+    background: rgba(55, 190, 255, .15);
+}
+
+#iconizer-overlay .iconizer-cell.selected {
+    border-color: #37beff;
+}
+
+#iconizer-overlay .iconizer-foot {
+    display: flex;
+    justify-content: space-between;
+}

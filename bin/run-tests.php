@@ -10,11 +10,13 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/../src/IconResolver.php';
+require __DIR__ . '/../src/IconPacks.php';
 require __DIR__ . '/../src/IconRenderer.php';
 require __DIR__ . '/../src/OfflineIcons.php';
 require __DIR__ . '/../src/IconStore.php';
 
 use Armanoide\Iconizer\IconResolver;
+use Armanoide\Iconizer\IconPacks;
 use Armanoide\Iconizer\IconRenderer;
 use Armanoide\Iconizer\OfflineIcons;
 use Armanoide\Iconizer\IconStore;
@@ -65,6 +67,11 @@ check('rejects malformed (empty name)', IconResolver::parse('tabler:') === null)
 check('rejects uppercase pack', IconResolver::parse('Tabler:folder') === null);
 check('isAllowed accepts allowlisted pack', (new IconResolver())->isAllowed('lucide:x') === true);
 check('isAllowed rejects unknown pack', (new IconResolver())->isAllowed('hugeicons:x') === false);
+check('allowedPacks lists the curated packs, lucide first (ADR 0002)', IconResolver::ALLOWED_PACKS === ['lucide', 'tabler', 'mdi', 'ph', 'ri']);
+check('allowedPacks() exposes them to the form', (new IconResolver())->allowedPacks() === IconResolver::ALLOWED_PACKS);
+check('picker packs match the resolver allowlist (ADR 0002)', IconPacks::prefixes() === IconResolver::ALLOWED_PACKS);
+check('picker labels the packs for humans', IconPacks::label('mdi') === 'Material Design Icons');
+check('parse anchors the picker pack on the current choice', (IconResolver::parse('mdi:file-invoice') ?? [null])[0] === 'mdi');
 
 echo "\nIconRenderer\n";
 $svg = IconRenderer::svg('<path d="M3 7h18"/>');
@@ -108,6 +115,52 @@ check('store survives reload (persistence)', $s2->get('Projets') === 'lucide:fol
 $s2->forget('Projets');
 check('forget removes the entry', (new IconStore($tmp))->get('Projets') === null);
 unlink($tmp);
+
+echo "\nIconStore — prefs round-trip (source = users.preferences, card 02)\n";
+$prefs_rows = ['Administration' => ['icon' => 'tabler:briefcase', 'svg' => '<rect/>']];
+$p = new IconStore();
+$p->hydrate($prefs_rows);
+check('hydrate reads prefs-shaped rows', $p->get('Administration') === 'tabler:briefcase');
+$p_bad = new IconStore();
+$p_bad->hydrate(['X' => 'nope', 'Ok' => ['icon' => 'lucide:folder']]);
+check('hydrate drops malformed rows', $p_bad->overrides() === ['Ok' => 'lucide:folder']);
+check('all() round-trips back to prefs shape', $p->all() === $prefs_rows);
+$p_empty = new IconStore();
+$p_empty->hydrate([]);
+check('empty prefs hydrate to empty store', $p_empty->overrides() === []);
+
+echo "\nIconStore — rename migration (carte 02: renommer conserve l'icône)\n";
+$s = new IconStore();
+$s->hydrate([
+    'Projets'          => ['icon' => 'lucide:folder-open', 'svg' => '<a/>'],
+    'Projets/Notes'   => ['icon' => 'tabler:note', 'svg' => '<b/>'],
+    'ProjetsX'        => ['icon' => 'mdi:alpha-x', 'svg' => '<c/>'],
+    'Autre'           => ['icon' => 'ph:planet', 'svg' => '<d/>'],
+]);
+$s->rename('Projets', 'Chantiers');
+check('renamed folder keeps its icon', $s->get('Chantiers') === 'lucide:folder-open');
+check('renamed folder keeps its svg cache', $s->svg('Chantiers') === '<a/>');
+check('old key is gone', $s->get('Projets') === null);
+check('subfolders migrate with the parent', $s->get('Chantiers/Notes') === 'tabler:note');
+check('prefix look-alike folders are untouched', $s->get('ProjetsX') === 'mdi:alpha-x');
+check('unrelated folders are untouched', $s->get('Autre') === 'ph:planet');
+
+echo "\nIconStore — delete cleanup (carte 02: supprimer nettoie)\n";
+$s = new IconStore();
+$s->hydrate([
+    'Projets'        => ['icon' => 'lucide:folder-open', 'svg' => '<a/>'],
+    'Projets/Notes' => ['icon' => 'tabler:note', 'svg' => '<b/>'],
+    'ProjetsX'      => ['icon' => 'mdi:alpha-x', 'svg' => '<c/>'],
+]);
+$prefix = 'Projets/';
+foreach (array_keys($s->overrides()) as $key) {
+    if ($key === 'Projets' || str_starts_with($key, $prefix)) {
+        $s->forget($key);
+    }
+}
+check('deleted folder entry is gone', $s->get('Projets') === null);
+check('deleted subfolder entry is gone', $s->get('Projets/Notes') === null);
+check('prefix look-alike survives delete', $s->get('ProjetsX') === 'mdi:alpha-x');
 
 echo "\nEnd-to-end seam (store -> resolver -> renderer)\n";
 $tmp = tempnam(sys_get_temp_dir(), 'iconizer') . '.json';

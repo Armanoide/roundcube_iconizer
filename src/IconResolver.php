@@ -72,6 +72,12 @@ final class IconResolver
         return $parts !== null && in_array($parts[0], $this->allowedPacks, true);
     }
 
+    /** @return list<string> the packs the picker may offer (ADR 0002) */
+    public function allowedPacks(): array
+    {
+        return $this->allowedPacks;
+    }
+
     /** @return array<string, string> */
     public function overrides(): array
     {

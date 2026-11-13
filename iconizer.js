@@ -71,14 +71,35 @@
             li.classList.add('iconizer-painted');
         }
 
+        function unpaintRow(li) {
+            // Entrée retirée des prefs (icône supprimée) : le glyphe Elastic revient.
+            var anchor = li.querySelector(':scope > a');
+            if (!anchor) return;
+
+            var old = anchor.querySelector(':scope > .iconizer-holder');
+            if (old) old.remove();
+            li.classList.remove('iconizer-painted');
+        }
+
         function paintAll() {
-            document.querySelectorAll('.folderlist li.mailbox').forEach(paintRow);
+            document.querySelectorAll('.folderlist li.mailbox').forEach(function (li) {
+                if (entryFor(li)) paintRow(li); else unpaintRow(li);
+            });
+        }
+
+        function repaintFromPrefs(e) {
+            // Le plugin renvoie la carte à jour dans l'env de chaque réponse AJAX
+            // (save/rename/delete) : la sidebar suit sans rechargement manuel.
+            if (e && e.response && e.response.env && e.response.env.iconizer_icons) {
+                ICONS = e.response.env.iconizer_icons;
+            }
+            paintAll();
         }
 
         if (window.rcmail && rcmail.addEventListener) {
             rcmail.addEventListener('response before script', paintAll);
             rcmail.addEventListener('response after script', paintAll);
-            rcmail.addEventListener('folderUpdated', paintAll);
+            rcmail.addEventListener('folderUpdated', repaintFromPrefs);
             rcmail.addEventListener('imap_folders_changed', paintAll);
         }
 
