@@ -197,9 +197,21 @@
             var targets = p ? [p] : available;
 
             if (!term) {
-                // No term: "All" would list thousands, so prompt; a chosen pack previews.
                 if (!p) {
-                    grid.innerHTML = '<span class="iconizer-placeholder">' + esc(label('iconizertype', 'Type to search…')) + '</span>';
+                    // "All" is the default and must show something: preview every
+                    // installed pack round-robin so each one appears in the grid.
+                    Promise.all(available.map(function (t) { return namesOf(t); }))
+                        .then(function (chunks) {
+                            var refs = [], i = 0, more = true;
+                            while (more && refs.length < 120) {
+                                more = false;
+                                chunks.forEach(function (c, k) {
+                                    if (i < c.length) { refs.push(available[k] + ':' + c[i]); more = true; }
+                                });
+                                i++;
+                            }
+                            show(grid, refs);
+                        });
                     return;
                 }
                 namesOf(p).then(function (names) { show(grid, names.slice(0, 120).map(function (n) { return p + ':' + n; })); });
