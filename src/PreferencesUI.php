@@ -7,22 +7,12 @@ namespace Armanoide\Iconizer;
 /**
  * Preferences → "Icon packs" (ADR 0004): install/remove the local sprite mirrors.
  *
- * Extracted from roundcube_iconizer.php so the plugin entry point stays focused on
- * wiring and folder-icon persistence. This class owns three core hooks:
- *   - preferences_sections_list : registers the "Icon packs" section
- *   - preferences_list          : renders one checkbox per allowlisted pack
- *   - preferences_save         : installs/removes the packs whose box changed
- *
- * Why checkboxes and not buttons: the section renders inside Roundcube's save-prefs
- * form (prefs_edit.php wraps every block in it). A nested <form> is invalid HTML and
- * the browser drops it, so custom submit buttons fired the parent form WITHOUT our
- * fields — "Successfully saved" with nothing installed. Real preference options are the
- * supported path: the core serializes them, its Save button posts them, and
- * preferences_save receives them in $p['prefs'].
+ * Checkboxes, not buttons: this section renders inside Roundcube's save-prefs form,
+ * so a nested <form> is dropped by the browser. Real preference options are serialized
+ * and posted by the core's own Save button.
  */
 final class PreferencesUI
 {
-    /** @var IconSpriteCache the plugin's local sprite mirror */
     private $sprites;
 
     public function __construct(IconSpriteCache $sprites)
@@ -30,7 +20,6 @@ final class PreferencesUI
         $this->sprites = $sprites;
     }
 
-    /** Register the "Icon packs" section under User interface. */
     public function sectionsList($p)
     {
         $p['list']['iconizer'] = ['id' => 'iconizer', 'section' => 'Icon packs'];
@@ -38,24 +27,19 @@ final class PreferencesUI
         return $p;
     }
 
-    /**
-     * Render one checkbox per allowlisted pack. Checked = installed. The current
-     * install state comes from the sprite mirror, not from prefs: prefs only carry the
-     * user's intent for THIS request; the filesystem is the source of truth.
-     */
     public function list($p)
     {
         if ($p['section'] !== 'iconizer') {
             return $p;
         }
 
-        // On the sections overview (not current), signal our block exists, render nothing.
         if (!$p['current']) {
             $p['blocks']['main']['content'] = true;
 
             return $p;
         }
 
+        // Install state is read from the filesystem, not prefs: prefs carry intent, disk is truth.
         $options = [];
         foreach (IconPacks::PACKS as $prefix => $label) {
             $installed = $this->sprites->isInstalled($prefix);
@@ -67,12 +51,10 @@ final class PreferencesUI
                 'value' => 1,
             ]);
 
-            $title = rcube::Q($label)
-                . ($installed ? ' <span class="iconizer-pack-ok">(' . $count . ' icons installed)</span>' : '');
-
             $options['pack_' . $prefix] = [
                 'key'     => 'pack_' . $prefix,
-                'title'   => $title,
+                'title'   => \rcube::Q($label)
+                    . ($installed ? ' <span class="iconizer-pack-ok">(' . $count . ' icons installed)</span>' : ''),
                 'content' => $field->show($installed ? 1 : 0),
             ];
         }
@@ -86,11 +68,6 @@ final class PreferencesUI
         return $p;
     }
 
-    /**
-     * Install/remove packs based on which boxes are checked in this save. A checked
-     * box whose pack is not yet installed triggers a download; an unchecked box whose
-     * pack IS installed removes it. Idempotent: unchanged boxes do nothing.
-     */
     public function save($p)
     {
         if ($p['section'] !== 'iconizer') {
@@ -120,8 +97,7 @@ final class PreferencesUI
             $rcmail->output->show_message(implode(' ', $results), 'confirmation');
         }
 
-        // Prefs themselves carry nothing here; the filesystem is the store. Tell the
-        // core not to try saving an empty prefs array as a failure.
+        // Nothing to persist in prefs; the sprite files are the store.
         $p['prefs'] = [];
 
         return $p;
