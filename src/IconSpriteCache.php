@@ -116,24 +116,29 @@ final class IconSpriteCache
             return ['ok' => false, 'count' => 0, 'error' => 'no icon bodies'];
         }
 
-        if (!is_dir($this->spriteDir)) {
-            mkdir($this->spriteDir, 0755, true);
-        }
-        if (!is_dir($this->dataDir)) {
-            mkdir($this->dataDir, 0755, true);
+        foreach ([$this->spriteDir, $this->dataDir] as $dir) {
+            if (!is_dir($dir)) {
+                mkdir($dir, 0775, true);
+            }
         }
 
-        file_put_contents($this->spritePath($pack), $this->renderSprite($symbols));
-        file_put_contents(
-            $this->dataPath($pack),
-            json_encode([
-                'prefix'  => $pack,
-                // @iconify-json/icons.json carries no version field; the
-                // "@latest" redirect resolved server-side, unknown here.
-                'version' => isset($json['version']) ? (string) $json['version'] : null,
-                'names'   => array_keys($symbols),
-            ], JSON_UNESCAPED_SLASHES)
-        );
+        // Verify the writes: a failed write (e.g. read-only dir) must report failure,
+        // not ok=true with files that don't exist. This is what made install lie before.
+        $sprite = $this->renderSprite($symbols);
+        if (@file_put_contents($this->spritePath($pack), $sprite) === false) {
+            return ['ok' => false, 'count' => 0, 'error' => "cannot write sprite: {$this->spritePath($pack)}"];
+        }
+
+        $data = json_encode([
+            'prefix'  => $pack,
+            // @iconify-json/icons.json carries no version field; "@latest" resolved server-side.
+            'version' => isset($json['version']) ? (string) $json['version'] : null,
+            'names'   => array_keys($symbols),
+        ], JSON_UNESCAPED_SLASHES);
+
+        if (@file_put_contents($this->dataPath($pack), $data) === false) {
+            return ['ok' => false, 'count' => 0, 'error' => "cannot write data: {$this->dataPath($pack)}"];
+        }
 
         return ['ok' => true, 'count' => count($symbols), 'error' => null];
     }
