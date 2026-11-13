@@ -88,7 +88,6 @@ class roundcube_iconizer extends rcube_plugin
 
         if ($rcmail->task === 'settings') {
             $this->add_hook('folder_form', [$this, 'folder_form']);
-            $this->add_hook('preferences_save', [$this, 'preferences_save']);
         }
 
         // The folder edit form submits to save-folder (core). We shadow that
@@ -133,23 +132,6 @@ class roundcube_iconizer extends rcube_plugin
         $rcmail = rcmail::get_instance();
 
         return (bool) ($rcmail && $rcmail->user && $rcmail->user->save_prefs([self::PREFS_KEY => $this->store->all()]));
-    }
-
-    /**
-     * preferences_save fires on every Settings section save with a prefs array
-     * that never carries our key, and rcube_user::save_prefs() merges — so the
-     * map survives untouched. The guard re-injects it anyway: one write per
-     * section save, but no window where another plugin could blank the map.
-     */
-    public function preferences_save($args)
-    {
-        $this->bind_store();
-
-        if (!isset($args['prefs'][self::PREFS_KEY])) {
-            $args['prefs'][self::PREFS_KEY] = $this->store->all();
-        }
-
-        return $args;
     }
 
     /** Publish the folder→icon map to the client, keyed by raw folder name. */
