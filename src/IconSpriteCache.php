@@ -164,7 +164,12 @@ final class IconSpriteCache
         }
     }
 
-    /** Fetch a URL with PHP curl; null on any failure. ~1MB packs, 60s cap. */
+    /**
+     * Fetch a URL with PHP curl; null on any failure. Full packs reach ~5MB
+     * (fa-solid), so the timeout is generous and gzip is requested to cut the
+     * transfer ~4x behind the reverse proxy. A truncated body fails json_decode
+     * upstream, so a short read is never mistaken for success.
+     */
     public function curl(string $url): ?string
     {
         $ch = curl_init($url);
@@ -175,14 +180,23 @@ final class IconSpriteCache
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT        => 60,
+            CURLOPT_ENCODING       => '',        // accept gzip/deflate: ~4x smaller over the wire
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT        => 180,       // 5MB packs over a slow link
             CURLOPT_USERAGENT      => 'roundcube-iconizer/1.0',
         ]);
         $raw = curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err  = curl_error($ch);
         curl_close($ch);
 
-        return is_string($raw) && $raw !== '' && $code === 200 ? $raw : null;
+        if (!is_string($raw) || $raw === '' || $code !== 200) {
+            error_log("iconizer: fetch {$url} failed (http {$code}) {$err}");
+
+            return null;
+        }
+
+        return $raw;
     }
 
     /** One <symbol> per icon: viewBox from the data, default 24 (Iconify spec). */
