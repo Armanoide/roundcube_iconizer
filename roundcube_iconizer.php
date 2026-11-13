@@ -54,6 +54,10 @@ class roundcube_iconizer extends rcube_plugin
     /** @var string|null raw IMAP name of the folder being edited (save-folder POST) */
     private $pending_folder = null;
 
+    /** @var bool save-folder ran to completion on this request (guard: never
+     *  persist a half-saved rename) */
+    private $save_ran = false;
+
     /** @var bool la carte a-t-elle été publiée pendant cette requête */
     private $map_published = false;
 
@@ -88,9 +92,14 @@ class roundcube_iconizer extends rcube_plugin
         // it fires with the final HTML, after any plugin output->reset() wiped env.
         $this->add_hook('ready', [$this, 'publish_icons']);
         $this->add_hook('send_page', [$this, 'ensure_map_in_html']);
-        // render_response fires on every AJAX response (rcmail_output_json::remote_-
-        // response), after the core's action has run — the persistence point for the
-        // icon stashed by folder_update, and the repaint channel for rename/delete.
+        // render_response fires on AJAX responses only (rcmail_output_json::remote_-
+        // response, rcmail_output_json.php:252). The folder edit form submits as a
+        // CLASSIC POST — elastic's Save runs rcmail.command('save') → form.submit()
+        // (program/js/app.js:1128) — so the output object stays rcmail_output_html
+        // (rcmail.php:145-147: json_init only with the X-Roundcube-Request header)
+        // and render_response NEVER fires on save-folder. Persistence therefore
+        // happens in flush_pending_icon at request shutdown (see init below); this
+        // hook only piggybacks the fresh map onto genuine AJAX responses.
         $this->add_hook('render_response', [$this, 'on_render_response']);
 
         if ($rcmail->task === 'settings') {
@@ -105,7 +114,8 @@ class roundcube_iconizer extends rcube_plugin
             // index alias table (settings/index.php:42 → rcmail_action_settings_folder_-
             // save), so our handler would never run. The folder_update hook IS fired on
             // this request (folder_save.php:156) with the submitted record, before the
-            // IMAP write — so we stash the icon there and persist it in render_response.
+            // IMAP write — so we stash the icon there and commit it at request
+            // shutdown (flush_pending_icon), after the core's own save_prefs ran.
             $this->add_hook('folder_update', [$this, 'on_folder_update']);
         }
 
@@ -114,6 +124,14 @@ class roundcube_iconizer extends rcube_plugin
         // the core migrates message_threading there.
         $this->add_hook('folder_rename', [$this, 'on_folder_rename']);
         $this->add_hook('folder_delete', [$this, 'on_folder_delete']);
+
+        // Persistence net for the classic-POST save-folder path: rcube::shutdown()
+        // (rcube.php:1087, register_shutdown_function at rcube.php:124) runs
+        // rcmail::shutdown() before the DB/session close on EVERY request,
+        // including the plain form POST where render_response and send_page never
+        // fire (folder_save.php:217 hands off to edit-folder, whose send() exits
+        // inside the dispatcher loop at rcmail.php:310).
+        rcube::get_instance()->add_shutdown_function([$this, 'flush_pending_icon']);
 
         $this->register_action('plugin.iconizer-icon', [$this, 'icon_svg']);
     }
@@ -259,6 +277,8 @@ class roundcube_iconizer extends rcube_plugin
      */
     public function on_folder_update($args)
     {
+        $this->bind_store();
+
         $icon = trim(rcube_utils::get_input_string('_iconizer_icon', rcube_utils::INPUT_POST));
 
         if ($icon !== '' && !$this->resolver->isAllowed($icon)) {
@@ -274,50 +294,69 @@ class roundcube_iconizer extends rcube_plugin
         $this->pending_icon   = $icon;
         $this->pending_folder = (string) ($args['record']['name'] ?? '');
 
+        // save-folder always ends at overwrite_action('edit-folder') (the last
+        // statement of folder_save.php's run()) — reaching here means the core's
+        // checks passed; the icon is committed in flush_pending_icon at request
+        // shutdown, after the core's own prefs writes (message_threading).
+        $this->save_ran = true;
+
         return $args;
     }
 
     /**
-     * Persist the stashed icon once the core's save-folder has run. render_response
-     * fires on every AJAX response (rcmail_output_json::remote_response) just before
-     * the JSON is echoed — including the iframe/send() path, which never reaches the
-     * dispatcher's post-loop send_page. The env map in the same response repaints the
-     * sidebar without a reload.
+     * Persist the stashed icon once the core's save-folder has run. Two paths:
+     * AJAX (render_response, rcmail_output_json::remote_response) and classic
+     * POST (rcube shutdown — the form submits via form.submit(), app.js:1128,
+     * so no JSON output object exists on that request and render_response never
+     * fires; the html path re-renders edit-folder and exits inside the
+     * dispatcher, rcmail.php:310). Idempotent via $save_ran.
      */
     public function on_render_response($args)
     {
-        $this->bind_store();
-
-        if ($this->pending_icon !== null && $this->pending_folder !== '') {
-            $rcmail    = rcmail::get_instance();
-            $storage   = $rcmail->get_storage();
-            $delimiter = $storage->get_hierarchy_delimiter();
-            $old       = rcube_utils::get_input_string('_mbox', rcube_utils::INPUT_POST, true);
-
-            if ($old !== '' && $old !== $this->pending_folder) {
-                // Le formulaire a renommé le dossier : l'icône suit (carte 02, AC 7).
-                $this->store->rename($old, $this->pending_folder, $delimiter);
-            }
-
-            if ($this->pending_icon === '') {
-                $this->store->forget($this->pending_folder); // retirer l'icône → glyphe standard
-            } else {
-                $this->store->put($this->pending_folder, $this->pending_icon, $this->fetchBody($this->pending_icon));
-            }
-
-            if ($this->save_prefs()) {
-                $this->republish(); // la réponse AJAX rapporte la carte à jour au client
-            }
-        }
-
-        $this->pending_icon   = null;
-        $this->pending_folder = null;
+        $this->flush_pending_icon();
 
         if (!empty($args['response']) && is_array($args['response'])) {
+            $this->bind_store();
             $args['response']['env'] = ($args['response']['env'] ?? []) + ['iconizer_icons' => $this->icon_map()];
         }
 
         return $args;
+    }
+
+    /** Commit the stashed icon after a completed save-folder (see $save_ran). */
+    public function flush_pending_icon(): void
+    {
+        if (!$this->save_ran) {
+            return;
+        }
+
+        $this->save_ran = false;
+
+        if ($this->pending_icon === null || $this->pending_folder === '') {
+            return;
+        }
+
+        $rcmail    = rcmail::get_instance();
+        $delimiter = $rcmail->get_storage()->get_hierarchy_delimiter();
+        $old       = rcube_utils::get_input_string('_mbox', rcube_utils::INPUT_POST, true);
+
+        if ($old !== '' && $old !== $this->pending_folder) {
+            // Le formulaire a renommé le dossier : l'icône suit (carte 02, AC 7).
+            $this->store->rename($old, $this->pending_folder, $delimiter);
+        }
+
+        if ($this->pending_icon === '') {
+            $this->store->forget($this->pending_folder); // retirer l'icône → glyphe standard
+        } else {
+            $this->store->put($this->pending_folder, $this->pending_icon, $this->fetchBody($this->pending_icon));
+        }
+
+        if ($this->save_prefs()) {
+            $this->republish(); // la réponse AJAX rapporte la carte à jour au client
+        }
+
+        $this->pending_icon   = null;
+        $this->pending_folder = null;
     }
 
     /** Migrate the icon of a renamed folder (and its subfolders) to the new name. */
