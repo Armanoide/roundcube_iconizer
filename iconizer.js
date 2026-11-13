@@ -76,12 +76,16 @@
             var anchor = li.querySelector(':scope > a');
             if (!anchor) return;
 
-            // Fresh save: the sprite (or inline cache) paints immediately. With neither,
-            // leave the row for the Iconify fallback rather than shipping an empty holder.
+            // Idempotent: paintAll runs on many events (AJAX, folderUpdated, the
+            // MutationObserver). Remove any holder already there so we never stack a
+            // second icon, then insert exactly one reflecting the current ref.
+            anchor.querySelectorAll(':scope > .iconizer-holder').forEach(function (n) { n.remove(); });
+
             var markup = hasSprite(entry.ref) ? spriteUse(entry.ref) : (entry.svg || '');
             if (markup) {
                 anchor.insertAdjacentHTML('afterbegin', '<span class="iconizer-holder">' + markup + '</span>');
-            } else if (!anchor.querySelector(':scope > .iconizer-holder')) {
+            } else {
+                // No sprite, no inline cache: the Elastic glyph stays until the pack installs.
                 anchor.insertBefore(makeIconNode(entry), anchor.firstChild);
             }
             li.classList.add('iconizer-painted');
