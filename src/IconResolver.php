@@ -58,7 +58,9 @@ final class IconResolver
     /** Split "pack:name" into its two halves; null when malformed. */
     public static function parse(string $reference): ?array
     {
-        if (!preg_match('/^([a-z0-9]+):([a-z0-9-]+)$/', $reference, $m)) {
+        // Le pack peut contenir un tiret (fa-solid, fa-brands, simple-icons) :
+        // [a-z0-9]+ seul rejetait ces packs et les faisait retomber sur le default.
+        if (!preg_match('/^([a-z0-9-]+):([a-z0-9-]+)$/', $reference, $m)) {
             return null;
         }
 

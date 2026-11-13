@@ -76,7 +76,15 @@ class roundcube_iconizer extends rcube_plugin
     {
         $icons = [];
         foreach ($this->store->overrides() as $folder => $ref) {
+            // Ref hors allowlist (ex. ancien pack retiré) : rien à publier, le
+            // glyphe Elastic standard reprend la main.
+            if (!$this->resolver || !$this->resolver->isAllowed($ref)) {
+                continue;
+            }
+
             $svg = $this->store->svg($folder);
+            // Le SVG en cache ne vaut que pour sa ref : un cache périmé (pack
+            // changé sans re-pick) ne doit jamais primer sur la ref courante.
             $icons[$folder] = [
                 'ref' => $ref,
                 'svg' => $svg !== null && $svg !== '' ? IconRenderer::svg($svg) : '',

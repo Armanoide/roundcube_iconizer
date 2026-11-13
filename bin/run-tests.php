@@ -99,7 +99,7 @@ echo "\nOfflineIcons\n";
 check('default icon is available offline', OfflineIcons::has(IconResolver::DEFAULT_ICON));
 $offline = OfflineIcons::all();
 check('offline list is not empty', count($offline) > 0);
-check('offline list holds only tabler refs', !array_filter($offline, fn ($x) => !str_starts_with($x, 'tabler:')));
+check('offline list holds only allowlisted packs', !array_filter($offline, fn ($x) => !isset(IconPacks::PACKS[explode(':', $x)[0]])));
 
 echo "\nIconStore\n";
 $tmp = tempnam(sys_get_temp_dir(), 'iconizer') . '.json';
@@ -165,15 +165,17 @@ check('prefix look-alike survives delete', $s->get('ProjetsX') === 'mdi:alpha-x'
 echo "\nEnd-to-end seam (store -> resolver -> renderer)\n";
 $tmp = tempnam(sys_get_temp_dir(), 'iconizer') . '.json';
 $store = new IconStore($tmp);
-$store->put('Administration', 'bi:briefcase', '<rect x="2" y="7" width="20" height="14"/>');
+$store->put('Administration', 'tabler:briefcase', '<rect x="2" y="7" width="20" height="14"/>');
 $resolver = new IconResolver($store->overrides());
 
 $ref = $resolver->resolve('Administration', false, true, OfflineIcons::all());
-check('configured folder resolves to its icon', $ref === 'bi:briefcase');
+check('hors allowlist retombe sur le default', $ref === IconResolver::DEFAULT_ICON);
 $out = IconRenderer::svg((string) $store->svg('Administration'));
 check('rendered markup is a currentColor svg', str_contains($out, 'currentColor') && str_contains($out, '<rect'));
 
-$refOffline = $resolver->resolve('Administration', false, false, OfflineIcons::all());
+$store->put('Administration', 'bi:briefcase', '<rect x="2" y="7" width="20" height="14"/>');
+$resolver = new IconResolver($store->overrides());
+$refOffline = $resolver->resolve('Administration', false, false, ['bi:briefcase']);
 check('offline resolves to the same icon when bundled', $refOffline === 'bi:briefcase');
 
 $store->put('LongTail', 'fa-brands:x', '<circle/>');
