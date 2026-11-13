@@ -14,6 +14,7 @@ require_once __DIR__ . '/src/IconFetcher.php';
 require_once __DIR__ . '/src/IconStore.php';
 require_once __DIR__ . '/src/OfflineIcons.php';
 require_once __DIR__ . '/src/IconSpriteCache.php';
+require_once __DIR__ . '/src/PreferencesUI.php';
 
 use Armanoide\Iconizer\IconFetcher;
 use Armanoide\Iconizer\IconPacks;
@@ -22,6 +23,7 @@ use Armanoide\Iconizer\IconResolver;
 use Armanoide\Iconizer\IconStore;
 use Armanoide\Iconizer\OfflineIcons;
 use Armanoide\Iconizer\IconSpriteCache;
+use Armanoide\Iconizer\PreferencesUI;
 
 /**
  * Roundcube plugin: custom per-folder icons in the Elastic sidebar.
@@ -142,12 +144,12 @@ class roundcube_iconizer extends rcube_plugin
         if ($rcmail->task === 'settings') {
             $this->add_hook('folder_form', [$this, 'folder_form']);
             // Preferences → "Icon packs" (ADR 0004): install/remove the local sprite
-            // mirrors. The section renders here; each button posts to plugin.iconizer-pack.
-            $this->add_hook('preferences_sections_list', [$this, 'preferences_sections_list']);
-            $this->add_hook('preferences_list', [$this, 'preferences_list']);
-            // Install/remove posts through the core save-prefs action so the page
-            // reloads on this section with a proper message (not raw text).
-            $this->add_hook('preferences_save', [$this, 'preferences_save']);
+            // mirrors. Delegates to PreferencesUI; each pack is a real preference option
+            // so the core's Save button serializes and posts it natively.
+            $prefs = $this->prefsUI();
+            $this->add_hook('preferences_sections_list', [$prefs, 'sectionsList']);
+            $this->add_hook('preferences_list', [$prefs, 'list']);
+            $this->add_hook('preferences_save', [$prefs, 'save']);
             // The folder edit form submits to the core save-folder action. A plugin
             // cannot shadow a core action: rcube_plugin_api::register_action() force-
             // prefixes every registration with "plugin." (rcube_plugin_api.php:523),
@@ -177,152 +179,6 @@ class roundcube_iconizer extends rcube_plugin
         rcube::get_instance()->add_shutdown_function([$this, 'flush_pending_icon']);
 
         $this->register_action('plugin.iconizer-icon', [$this, 'icon_svg']);
-        // Install/remove a pack's local sprite (ADR 0004), posted by the Preferences
-        // "Icon packs" block. Registered for every task so the settings iframe reaches it.
-        $this->register_action('plugin.iconizer-pack', [$this, 'pack_action']);
-    }
-
-    /**
-     * Install or uninstall a pack's local sprite (ADR 0004). One download per pack,
-     * server-side; any authenticated user may — single-user homelab, packs allowlisted.
-     * Answers plain text: the buttons are standalone mini-forms, no JS runs on their
-     * submit. The mail frame picks the fresh sprites up on its next load.
-     */
-    public function pack_action(): void
-    {
-        // GPC: the buttons live in mini-forms inside the settings iframe; POST is the
-        // path, GET is a safe fallback (e.g. a manual link) — both reach the same handler.
-        $install   = rcube_utils::get_input_string('_iconizer_install', rcube_utils::INPUT_GPC);
-        $uninstall = rcube_utils::get_input_string('_iconizer_uninstall', rcube_utils::INPUT_GPC);
-        $pack      = in_array($install, IconPacks::prefixes(), true) ? $install
-            : (in_array($uninstall, IconPacks::prefixes(), true) ? $uninstall : '');
-
-        if ($pack === '') {
-            http_response_code(400);
-            exit;
-        }
-
-        if ($install === $pack) {
-            $result = $this->sprites()->install($pack);
-            $ok     = (bool) $result['ok'];
-            $line   = $ok
-                ? "iconizer: pack '{$pack}' installed ({$result['count']} icons)."
-                : "iconizer: install of '{$pack}' failed: {$result['error']}";
-        } else {
-            $this->sprites()->uninstall($pack);
-            $ok   = true;
-            $line = "iconizer: pack '{$pack}' removed.";
-        }
-
-        http_response_code($ok ? 200 : 502);
-        header('Content-Type: text/plain; charset=UTF-8');
-        echo $line . "\n";
-        exit;
-    }
-
-    /**
-     * Preferences section entry (ADR 0004): "Icon packs" under User interface.
-     * 'current' is false on the sections list, true when this section renders.
-     */
-    public function preferences_sections_list($p)
-    {
-        $p['list']['iconizer'] = ['id' => 'iconizer', 'section' => 'Icon packs'];
-
-        return $p;
-    }
-
-    /**
-     * Fill "Icon packs": one row per allowlisted pack, install or remove button.
-     * The buttons post to the core save-prefs action (the prefs section renders in
-     * an iframe whose save posts to the parent); preferences_save runs the install/
-     * remove and forwards back to this section, so the page reloads showing the new
-     * status instead of a raw text answer.
-     */
-    public function preferences_list($p)
-    {
-        if ($p['section'] !== 'iconizer') {
-            return $p;
-        }
-
-        if (!$p['current']) {
-            $p['blocks']['main']['content'] = true;
-
-            return $p;
-        }
-
-        $cache  = $this->sprites();
-        $rcmail = rcube::get_instance();
-
-        // The section renders INSIDE the core's save-prefs form (prefs_edit.php wraps
-        // every block in it). A nested <form> is invalid HTML and the browser drops it,
-        // so a submit button here would fire the parent form WITHOUT our fields — that
-        // was "Successfully saved" with nothing installed. Instead: hidden inputs + one
-        // submit per row, all belonging to the parent form. The click posts the whole
-        // form to save-prefs&_section=iconizer; preferences_save reads our field, does
-        // the install/remove, and the page reloads showing the fresh status.
-        $rows = '';
-        foreach (IconPacks::PACKS as $prefix => $label) {
-            $installed = $cache->isInstalled($prefix);
-            $count     = $installed ? $cache->count($prefix) : 0;
-
-            $status = $installed
-                ? '<span class="iconizer-pack-ok">Installed (' . $count . ' icons)</span>'
-                : '<span class="iconizer-pack-off">Not installed</span>';
-
-            $action = $installed ? '_iconizer_uninstall' : '_iconizer_install';
-            $button = $installed
-                ? '<button type="submit" class="btn btn-sm">Remove</button>'
-                : '<button type="submit" class="btn btn-sm btn-primary">Install</button>';
-
-            $field = '<input type="hidden" name="' . $action . '" value="' . rcube::Q($prefix) . '">' . $button;
-
-            $rows .= '<tr><td>' . rcube::Q($label) . '</td><td>' . $status . '</td><td>' . $field . '</td></tr>';
-        }
-
-        // One token for the whole parent form (the core adds its own too; a duplicate
-        // hidden _token is harmless — check_request only compares the value).
-        $p['blocks']['main']['content'] =
-            '<input type="hidden" name="_token" value="' . rcube::Q($rcmail->get_request_token()) . '">'
-            . '<table class="iconizer-packs-table"><tbody>' . $rows . '</tbody></table>'
-            . '<p class="iconizer-pack-note">Icons render from local sprites once a pack is '
-            . 'installed — no calls to api.iconify.design at runtime (ADR 0004).</p>';
-
-        return $p;
-    }
-
-    /**
-     * Handle the pack install/remove posted from the "Icon packs" block. Runs inside
-     * the core save-prefs request; overwrite_action('edit-prefs') then re-renders
-     * this section with the fresh status, so no raw text ever reaches the browser.
-     */
-    public function preferences_save($p)
-    {
-        if ($p['section'] !== 'iconizer') {
-            return $p;
-        }
-
-        $install   = rcube_utils::get_input_string('_iconizer_install', rcube_utils::INPUT_POST);
-        $uninstall = rcube_utils::get_input_string('_iconizer_uninstall', rcube_utils::INPUT_POST);
-        $pack      = in_array($install, IconPacks::prefixes(), true) ? $install
-            : (in_array($uninstall, IconPacks::prefixes(), true) ? $uninstall : '');
-
-        if ($pack === '') {
-            return $p; // a plain prefs save: nothing to do here
-        }
-
-        if ($install === $pack) {
-            $result = $this->sprites()->install($pack);
-            if ($result['ok']) {
-                rcube::get_instance()->output->show_message("Pack '{$pack}' installed ({$result['count']} icons).", 'confirmation');
-            } else {
-                rcube::get_instance()->output->show_message("Install of '{$pack}' failed: {$result['error']}", 'error');
-            }
-        } else {
-            $this->sprites()->uninstall($pack);
-            rcube::get_instance()->output->show_message("Pack '{$pack}' removed.", 'confirmation');
-        }
-
-        return $p;
     }
 
     /** @var IconSpriteCache|null local sprite mirror, built lazily per request */
@@ -336,6 +192,19 @@ class roundcube_iconizer extends rcube_plugin
         }
 
         return $this->sprites;
+    }
+
+    /** @var PreferencesUI|null the "Icon packs" preferences section, built lazily */
+    private $prefsui = null;
+
+    /** The Preferences → "Icon packs" controller (ADR 0004). */
+    private function prefsUI(): PreferencesUI
+    {
+        if ($this->prefsui === null) {
+            $this->prefsui = new PreferencesUI($this->sprites());
+        }
+
+        return $this->prefsui;
     }
 
     /** Bind the store/resolver to the authenticated user (id exists post-login). */
