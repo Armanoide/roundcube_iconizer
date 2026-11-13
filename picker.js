@@ -30,8 +30,6 @@
     }
 
     function label(name, fallback) {
-        // "save" vient du cœur (add_label + labels embarqués dans rcmail.env) ;
-        // les libellés iconizer* n'existent que côté picker, en dur ici.
         if (name === 'save' && window.rcmail && rcmail.get_label) {
             return rcmail.get_label('save') || fallback;
         }
@@ -46,7 +44,7 @@
             return;
         }
 
-        var pack = button.getAttribute('data-pack') || 'bi';
+        var pack = button.getAttribute('data-pack') || '';
         var selected = hidden.value || '';
 
         // One overlay for the whole document; opened on every button click.
@@ -72,7 +70,7 @@
             document.body.appendChild(overlay);
 
             select = overlay.querySelector('.iconizer-pack');
-            // « Tous » en tête : cherche dans tous les packs autorisés à la fois.
+            // "All packs" first and the default: multi-pack search is the normal case.
             var all = document.createElement('option');
             all.value = '';
             all.textContent = label('iconizerall', 'All packs');
@@ -96,7 +94,7 @@
             });
             overlay.querySelector('.iconizer-clear').addEventListener('click', function () {
                 selected = '';
-                commit(); // retirer l'icône → glyphe standard après enregistrement
+                commit(); // clear the icon -> standard glyph after save
             });
             overlay.querySelector('.iconizer-apply').addEventListener('click', commit);
             overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.hidden = true; });
@@ -108,7 +106,7 @@
         function commit() {
             hidden.value = selected;
             var svgSpan = document.getElementById('iconizer-form-svg');
-            if (svgSpan) svgSpan.textContent = ''; // périmé: le serveur re-résout à l'enregistrement
+            if (svgSpan) svgSpan.textContent = ''; // stale: the server re-resolves on save
             button.setAttribute('title', selected || label('iconizerselect', 'Choose an icon'));
             var ref = button.querySelector('.iconizer-ref');
             if (ref && ref.parentNode === button) {
@@ -140,10 +138,9 @@
             img.alt = '';
             img.width = 16;
             img.height = 16;
-            // Le cœur re-render le formulaire après save : .iconizer-ref peut ne plus
-            // être enfant de ce bouton (noeud orphelin ou absent) → insertBefore lève
-            // NotFoundError. Insertion robuste : avant ref seulement si ref est bien
-            // un enfant, sinon append (le contenu du bouton est reconstruit proprement).
+            // The core re-renders the form after save: .iconizer-ref may no longer be
+            // a child of this button (orphaned or gone) -> insertBefore throws. Insert
+            // before ref only when it really is a child, otherwise append.
             var ref = button.querySelector('.iconizer-ref');
             if (ref && ref.parentNode === button) {
                 button.insertBefore(img, ref);
@@ -153,9 +150,9 @@
         }
 
         function searchPack(p, term) {
-            // Une requête par pack : Iconify ne page que 64 résultats par appel et
-            // ne prend qu'un seul prefix= — une recherche globale suivie d'un filtre
-            // a posteriori ne remonte jamais les refs des packs autorisés (bug « pro »).
+            // One request per pack: Iconify caps results at 64 per call and takes a
+            // single prefix= — a global search filtered afterwards never surfaces the
+            // allowlisted packs (the "pro" bug).
             return fetch(API + '/search?query=' + encodeURIComponent(term) + '&prefix=' + encodeURIComponent(p) + '&limit=96')
                 .then(function (r) { return r.json(); })
                 .then(function (data) { return data.icons || []; })
@@ -167,19 +164,20 @@
             grid.innerHTML = '';
             term = (term || '').trim();
 
-            // Sans pack sélectionné (« Tous ») : tous les packs autorisés.
+            // Empty pack ("All") -> every allowlisted pack, otherwise just the chosen one.
             var targets = p ? [p] : Object.keys(PACKS);
 
             if (!term) {
-                // Sans recherche : les "samples" officiels d'Iconify, par pack.
-                Promise.all(targets.map(function (t) {
-                    return fetch(API + '/collections?request=' + encodeURIComponent(JSON.stringify({ prefixes: [t] })))
-                        .then(function (r) { return r.json(); })
-                        .then(function (data) { return (data[t] && data[t].samples || []).map(function (n) { return t + ':' + n; }); })
-                        .catch(function () { return []; });
-                })).then(function (chunks) {
-                    show(grid, flatten(chunks));
-                });
+                // No search term: "All" would list thousands of icons, so it stays empty
+                // and prompts for a query; samples only load for a single chosen pack.
+                if (!p) {
+                    grid.innerHTML = '<span class="iconizer-placeholder">' + esc(label('iconizertype', 'Type to search…')) + '</span>';
+                    return;
+                }
+                fetch(API + '/collections?request=' + encodeURIComponent(JSON.stringify({ prefixes: [p] })))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { show(grid, ((data[p] && data[p].samples) || []).map(function (n) { return p + ':' + n; })); })
+                    .catch(function () { grid.textContent = 'Iconify API unreachable'; });
                 return;
             }
 
@@ -199,18 +197,28 @@
         }
 
         function show(grid, refs) {
+            refs = refs.slice(0, 120); // hard cap: the grid scrolls, it never explodes
             refs.forEach(function (ref) {
                 var cell = document.createElement('button');
                 cell.type = 'button';
                 cell.className = 'iconizer-cell' + (ref === selected ? ' selected' : '');
                 cell.setAttribute('data-ref', ref);
                 cell.title = ref;
+                // Inline SVG (fetch) instead of <img>: a currentColor SVG loaded via
+                // <img> renders black on a dark background (invisible). Inline it
+                // inherits currentColor and follows the theme. <img> is the fallback.
                 var img = document.createElement('img');
                 img.src = API + '/' + ref.replace(':', '/') + '.svg';
                 img.alt = ref;
                 img.loading = 'lazy';
                 cell.appendChild(img);
                 grid.appendChild(cell);
+                fetch(API + '/' + ref.replace(':', '/') + '.svg')
+                    .then(function (r) { return r.ok ? r.text() : ''; })
+                    .then(function (svg) {
+                        if (svg.indexOf('<svg') === 0) cell.innerHTML = svg;
+                    })
+                    .catch(function () {});
             });
             if (!refs.length) {
                 grid.innerHTML = '<span class="iconizer-placeholder">—</span>';

@@ -10,8 +10,8 @@
     'use strict';
 
     function painter() {
-        // this = le window où le tree doit être peint (le frame lui-même, ou le
-        // parent via armParentFromIframe). window.rcmail y porte l'env.
+        // this = the window whose tree must be painted (the frame itself, or the
+        // parent via armParentFromIframe). window.rcmail carries the env there.
         var self = this || window;
         var env = self.rcmail && self.rcmail.env ? self.rcmail.env : null;
         if (!env || !env.iconizer_icons) {
@@ -67,9 +67,8 @@
             var anchor = li.querySelector(':scope > a');
             if (!anchor) return;
 
-            // La ref est dans les prefs mais son SVG n'est pas encore en cache
-            // (save fresh) : on peint le glyphe Iconify en direct plutôt que de
-            // laisser la ligne sans icône.
+            // The ref is in prefs but its SVG is not cached yet (fresh save): render
+            // the live Iconify glyph instead of leaving the row without an icon.
             var holder = entry.svg ? entry.svg : '';
             if (holder) {
                 anchor.insertAdjacentHTML('afterbegin', '<span class="iconizer-holder">' + holder + '</span>');
@@ -79,33 +78,31 @@
             li.classList.add('iconizer-painted');
         }
 
-        // Commande du plugin : le POST classique save-folder l'émet vers le frame
-        // parent (rcmail_output_html.php:843-853) en commande jumelle de
-        // replace_folder_row (app.js:8064) qui pose le nom — même mécanique, sur
-        // l'icône. Peint la ligne visée ; sans cible, peint tout le tree.
+        // Plugin command: the classic save-folder POST emits it toward the parent
+        // frame (rcmail_output_html.php:843-853) as the twin of replace_folder_row
+        // (app.js:8064) which sets the name — same mechanism, on the icon. Paints
+        // the targeted row; with no target it paints the whole tree.
         self.rcmail.iconizer_paint = function (folder) {
             ICONS = (self.rcmail.env && self.rcmail.env.iconizer_icons) || ICONS;
 
-            // La ligne du tree vit dans le frame parent (subscription-table). En
-            // deep-link sur edit-folder, self.document est celui de l'iframe : le
-            // getElementById y échoue et la peinture ne part jamais. On cible donc
-            // le document du parent quand il existe, sinon le nôtre.
+            // The tree row lives in the parent frame (subscription-table). On a
+            // deep-link into edit-folder, self.document is the iframe's: getElementById
+            // misses and nothing is painted. So target the parent document when present.
             var doc = (self.parent && self.parent !== self && self.parent.document) ? self.parent.document : self.document;
             var li  = folder ? doc.getElementById('rcmli' + self.rcmail.html_identifier_encode(folder)) : null;
 
             if (folder && !li) {
-                // Deux cas sans ligne au nom submitted : renommage (le cœur est en
-                // train de remplacer le <li> — son add_folder_row + notre observer
-                // rattrapent la peinture) et suppression de l'icône sur une ligne
-                // déjà repeinte (entryFor échoue, il faut unpaint directement).
+                // Two cases with no row under the submitted name: a rename (the core is
+                // replacing the <li> — its add_folder_row + our observer catch up) and
+                // removing the icon on an already-painted row (entryFor fails, unpaint).
                 if (ICONS[folder]) return;
                 doc.querySelectorAll('.folderlist li.mailbox.iconizer-painted').forEach(unpaintRow);
                 return;
             }
 
             if (li) {
-                // Self-check : une cible sans ligne existante est un no-op, pas un
-                // effacement — le renommage passe par replace_folder_row + observer.
+                // Self-check: a target with no existing row is a no-op, not a wipe —
+                // renames go through replace_folder_row + the observer.
                 if (!ICONS[folder] && !li.classList.contains('iconizer-painted')) return;
                 if (ICONS[folder]) paintRow(li); else unpaintRow(li);
             } else {
@@ -114,7 +111,7 @@
         };
 
         function unpaintRow(li) {
-            // Entrée retirée des prefs (icône supprimée) : le glyphe Elastic revient.
+            // Entry removed from prefs (icon deleted): the Elastic glyph comes back.
             var anchor = li.querySelector(':scope > a');
             if (!anchor) return;
 
@@ -130,8 +127,8 @@
         }
 
         function repaintFromPrefs(e) {
-            // Le plugin renvoie la carte à jour dans l'env de chaque réponse AJAX
-            // (save/rename/delete) : la sidebar suit sans rechargement manuel.
+            // The plugin returns the fresh map in every AJAX response env (save/rename/
+            // delete): the sidebar follows without a manual reload.
             if (e && e.response && e.response.env && e.response.env.iconizer_icons) {
                 ICONS = e.response.env.iconizer_icons;
             }
@@ -139,8 +136,8 @@
         }
 
         if (self.rcmail && self.rcmail.addEventListener) {
-            // Nom d'événement exact du cœur (app.js:9652/9851) : "responsebefore"/
-            // "responseafter" — les variantes avec espace n'existent pas.
+            // Exact core event names (app.js:9652/9851): "responsebefore"/"responseafter"
+            // — the spaced variants do not exist.
             self.rcmail.addEventListener('responsebefore', paintAll);
             self.rcmail.addEventListener('responseafter', paintAll);
             self.rcmail.addEventListener('folderUpdated', repaintFromPrefs);
@@ -168,37 +165,36 @@
         }
     }
 
-    // Le POST classique save-folder répond send('iframe') : toutes ses commandes
-    // sont réécrites en parent.rcmail.<cmd>() (rcmail_output_html.php:843-853) et
-    // write() vide script_files ET $this->scripts (:655-660) — l'iframe ne porte
-    // donc ni ce painter, ni un rcmail à elle (skins/elastic/ui.js :
-    // `rcmail=parent.rcmail` quand window.rcmail est absent). Le tree visible
-    // (subscriptionlist, app.js:7882/8065) vit dans le frame parent : c'est là
-    // qu'il faut armer le painter. Ce script, quand il tourne dans une iframe,
-    // installe donc son painter dans le parent (this=parent : window, document et
-    // rcmail internes deviennent ceux du parent) et repeint son tree avec la carte
-    // de l'env courant — celle du frame quand il en porte une (page complète),
-    // sinon celle que le hint inline de ensure_map_in_html vient d'y écrire.
+    // The classic save-folder POST answers send('iframe'): every command is rewritten
+    // as parent.rcmail.<cmd>() (rcmail_output_html.php:843-853) and write() empties
+    // script_files AND $this->scripts (:655-660) — so the iframe carries neither this
+    // painter nor its own rcmail (skins/elastic/ui.js: `rcmail=parent.rcmail` when
+    // window.rcmail is absent). The visible tree (subscriptionlist, app.js:7882/8065)
+    // lives in the parent frame, so that is where the painter must be armed. When this
+    // script runs inside an iframe it installs its painter into the parent (this=parent:
+    // window, document and the inner rcmail become the parent's) and repaints its tree
+    // with the current env map — the frame's when it carries one (full page), otherwise
+    // the one ensure_map_in_html's inline hint just wrote there.
     function armParentFromIframe() {
         var P = window.parent;
         try {
             if (!P || P === window || !P.rcmail || !P.document) return;
-            if (!P.document.querySelector('.folderlist')) return; // pas de tree : rien à peindre
+            if (!P.document.querySelector('.folderlist')) return; // no tree: nothing to paint
 
             var icons = (window.rcmail && window.rcmail.env && window.rcmail.env.iconizer_icons)
                 || (P.rcmail.env && P.rcmail.env.iconizer_icons);
             if (!icons) return;
 
             P.rcmail.env.iconizer_icons = icons;
-            painter.call(P); // définit P.rcmail.iconizer_paint et peint le tree du parent
+            painter.call(P); // defines P.rcmail.iconizer_paint and paints the parent tree
         } catch (e) {
-            // cross-origin parent : rien à repeindre ici
+            // cross-origin parent: nothing to repaint here
         }
     }
 
     function boot() {
-        // Le `var rcmail` global du cœur (rcmail_output_html.php:147) rend la
-        // référence nue possible ; window.rcmail est plus sûr en mode strict.
+        // The core's global `var rcmail` (rcmail_output_html.php:147) makes the bare
+        // reference possible; window.rcmail is safer in strict mode.
         if (window.rcmail && window.rcmail.env && window.rcmail.env.iconizer_icons) {
             painter.call(window);
         } else if (window.parent && window.parent !== window) {
